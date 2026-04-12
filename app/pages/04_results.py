@@ -23,41 +23,76 @@ METRIC_COLS_ALL = ["balanced_accuracy", "mcc", "cohen_kappa", "f1_weighted", "f1
 
 @st.cache_data(ttl=300)
 def load_from_dagshub(token: str) -> pd.DataFrame:
-    """Fetch all child runs from DagsHub MLflow and return as a dataframe."""
-    import mlflow
-    os.environ["MLFLOW_TRACKING_USERNAME"] = "pedroasvalente"
-    os.environ["MLFLOW_TRACKING_PASSWORD"] = token
-    mlflow.set_tracking_uri(DAGSHUB_MLFLOW_URI)
-    client = mlflow.tracking.MlflowClient()
+    """Fetch all child runs from DagsHub MLflow REST API (no mlflow Python client needed)."""
+    import requests
+
+    base = DAGSHUB_MLFLOW_URI + "/api/2.0/mlflow"
+    auth = ("pedroasvalente", token)
+    headers = {"Content-Type": "application/json"}
+
+    # 1. List all experiments
+    resp = requests.get(f"{base}/experiments/search", auth=auth,
+                        params={"max_results": 1000})
+    resp.raise_for_status()
+    experiments = resp.json().get("experiments", [])
 
     rows = []
-    for exp in client.search_experiments():
-        runs = client.search_runs(
-            experiment_ids=[exp.experiment_id],
-            filter_string="tags.model != ''",   # only child runs (have model tag)
-        )
-        for run in runs:
-            tags = run.data.tags
-            metrics = run.data.metrics
-            params = run.data.params
-            row = {
-                "run_id": run.info.run_id,
-                "experiment": exp.name,
-                "sample_type": tags.get("sample_type", ""),
-                "target": tags.get("target", ""),
-                "timepoints": tags.get("timepoints", ""),
-                "model": tags.get("model", ""),
-                "search": tags.get("search", ""),
-                "config": tags.get("config", ""),
-                "n_train": params.get("n_train"),
-                "n_test": params.get("n_test"),
-                "n_synthetic": params.get("n_synthetic"),
-                "apply_pls": params.get("apply_pls"),
-                **{m: metrics.get(m) for m in METRIC_COLS_ALL},
-            }
-            rows.append(row)
+    for exp in experiments:
+        exp_id = exp["experiment_id"]
+        exp_name = exp["name"]
 
-    return pd.DataFrame(rows) if rows else pd.DataFrame()
+        # 2. Search runs — only child runs (have "model" tag)
+        page_token = None
+        while True:
+            body = {
+                "experiment_ids": [exp_id],
+                "filter": "tags.model != ''",
+                "max_results": 1000,
+            }
+            if page_token:
+                body["page_token"] = page_token
+            r = requests.post(f"{base}/runs/search", auth=auth,
+                              headers=headers, json=body)
+            r.raise_for_status()
+            data = r.json()
+
+            for run in data.get("runs", []):
+                info = run.get("info", {})
+                tags = {t["key"]: t["value"] for t in run.get("data", {}).get("tags", [])}
+                metrics = {m["key"]: m["value"] for m in run.get("data", {}).get("metrics", [])}
+                params = {p["key"]: p["value"] for p in run.get("data", {}).get("params", [])}
+
+                # Skip parent runs (no model tag value)
+                if not tags.get("model"):
+                    continue
+
+                row = {
+                    "run_id": info.get("run_id", ""),
+                    "experiment": exp_name,
+                    "sample_type": tags.get("sample_type", ""),
+                    "target": tags.get("target", ""),
+                    "timepoints": tags.get("timepoints", ""),
+                    "model": tags.get("model", ""),
+                    "search": tags.get("search", ""),
+                    "config": tags.get("config", ""),
+                    "n_train": params.get("n_train"),
+                    "n_test": params.get("n_test"),
+                    "n_synthetic": params.get("n_synthetic"),
+                    "apply_pls": params.get("apply_pls"),
+                    **{m: metrics.get(m) for m in METRIC_COLS_ALL},
+                }
+                rows.append(row)
+
+            page_token = data.get("next_page_token")
+            if not page_token:
+                break
+
+    df = pd.DataFrame(rows) if rows else pd.DataFrame()
+    # Cast metric columns to float where possible
+    for col in METRIC_COLS_ALL:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
 
 
 def load_from_local() -> tuple[pd.DataFrame, list[str]]:
