@@ -98,7 +98,15 @@ if run_name and not _any_diag:
     )
 
 # ── Build lookup key ──────────────────────────────────────────────────────────
-diag_key = f"{sample_type}__{tp_label}__{model}__{search}"
+# JSON keys use the format: MATRIX__tp1__Model__search  or  MATRIX__tp1_2_3__Model__search
+# tp_label from the results df looks like "[1]" or "[1, 2, 3]" — convert to tp key.
+def _tp_to_key(tp_str: str) -> str:
+    """Convert timepoints string '[1]' → 'tp1', '[1, 2, 3]' → 'tp1_2_3'."""
+    import re
+    nums = re.findall(r"\d+", str(tp_str))
+    return "tp" + "_".join(nums) if nums else str(tp_str)
+
+diag_key = f"{sample_type}__{_tp_to_key(tp_label)}__{model}__{search}"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION 1 — Confusion Matrix
@@ -110,10 +118,15 @@ if cm_data is None:
 else:
     entry = cm_data.get(diag_key)
     if entry is None:
-        st.warning(f"No confusion matrix entry found for key: `{diag_key}`")
+        available = sorted(cm_data.keys())
+        st.warning(
+            f"No confusion matrix found for `{diag_key}`. "
+            f"Available keys: {available}"
+        )
     else:
-        cm_array = np.array(entry["matrix"])
-        class_labels = entry.get("labels", [str(i) for i in range(cm_array.shape[0])])
+        # Entry is stored as a plain list-of-lists (the matrix directly)
+        cm_array = np.array(entry)
+        class_labels = [str(i) for i in range(cm_array.shape[0])]
 
         fig_cm = px.imshow(
             cm_array,
