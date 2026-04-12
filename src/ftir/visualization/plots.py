@@ -2,7 +2,6 @@ import os
 
 import matplotlib
 import matplotlib.pyplot as plt
-import mlflow
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -46,6 +45,7 @@ def plot_confusion_matrix(
     fpath = os.path.join(save_dir, fname)
     plt.savefig(fpath, dpi=300, bbox_inches="tight")
     try:
+        import mlflow
         mlflow.log_figure(fig, fname)
     except Exception:
         pass
@@ -81,6 +81,7 @@ def plot_roc_curve(
     fpath = os.path.join(save_dir, fname)
     plt.savefig(fpath, dpi=300, bbox_inches="tight")
     try:
+        import mlflow
         mlflow.log_figure(fig, fname)
     except Exception:
         pass
@@ -125,6 +126,7 @@ def plot_vip_scores(
     fpath = os.path.join(save_dir, fname)
     plt.savefig(fpath, dpi=300, bbox_inches="tight")
     try:
+        import mlflow
         mlflow.log_figure(fig, fname)
     except Exception:
         pass
