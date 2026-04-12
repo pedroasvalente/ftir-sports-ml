@@ -38,25 +38,10 @@ with st.sidebar:
     metric = st.selectbox("Sort by", [c for c in METRIC_COLS if df[c].notna().any()])
     top_n = st.slider("Top-N per matrix", 1, 10, 3)
 
-    search_query = st.text_input(
-        "Search model/matrix",
-        value="",
-        placeholder="e.g. Random Forest, SERUM \u2026",
-        help="Case-insensitive substring match against matrix (sample_type) and model columns.",
-    )
-
 # ── Filter ────────────────────────────────────────────────────────────────────
 filtered = df[df["sample_type"].isin(matrix_filter) & df["model"].isin(model_filter)]
 if tp_filter and "timepoints" in df.columns:
     filtered = filtered[filtered["timepoints"].isin(tp_filter)]
-
-if search_query.strip():
-    q = search_query.strip().lower()
-    mask = (
-        filtered["sample_type"].str.lower().str.contains(q, na=False)
-        | filtered["model"].str.lower().str.contains(q, na=False)
-    )
-    filtered = filtered[mask]
 
 filtered = filtered.sort_values(metric, ascending=False).reset_index(drop=True)
 filtered.index += 1

@@ -40,10 +40,9 @@ with col_left:
     st.subheader("Background")
     st.markdown(
         """
-        This dashboard presents the analytical pipeline and classification results for Study 1
-        of a PhD research project at the University of Coimbra. The study investigates whether
-        attenuated total reflectance Fourier-transform infrared (ATR-FTIR) spectroscopy of biological
-        matrices can discriminate individuals according to their physical activity level.
+        The study investigates whether attenuated total reflectance Fourier-transform infrared
+        (ATR-FTIR) spectroscopy of biological matrices can discriminate individuals according
+        to their physical activity level.
 
         Spectra from five matrices — capillary blood, plasma, saliva, serum, and urine — were
         collected from sedentary individuals, football players, and ultramarathon runners across

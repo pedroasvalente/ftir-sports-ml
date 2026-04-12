@@ -252,6 +252,18 @@ def render_data_source_sidebar(results_dir) -> tuple[pd.DataFrame | None, bool]:
         if df.empty:
             st.info("No runs found on DagsHub. Run training first.")
             return None, True
+        # If multiple configs (runs) present, let the user filter to one
+        if "config" in df.columns:
+            config_vals = sorted(df["config"].dropna().unique())
+            if len(config_vals) > 1:
+                with st.sidebar:
+                    selected_config = st.selectbox(
+                        "Run (DagsHub)",
+                        options=["All"] + config_vals,
+                        help="Filter results to a specific training run by config tag.",
+                    )
+                if selected_config != "All":
+                    df = df[df["config"] == selected_config].copy()
         _render_run_info(df, run_label="DagsHub", source="DagsHub MLflow")
         return df, True
     elif has_local:

@@ -169,13 +169,15 @@ else:
             from sklearn.metrics import roc_curve, auc
             from sklearn.preprocessing import label_binarize
 
-            y_test = np.array(entry["y_test"])
-            y_prob = np.array(entry["y_prob"])
-            classes = entry.get("classes", sorted(set(y_test.tolist())))
+            y_test = np.array(entry["y_test"])        # integer class indices
+            y_prob = np.array(entry["y_prob"])         # shape (n_samples, n_classes)
+            classes = entry.get("classes", [str(i) for i in range(y_prob.shape[1])])
+            n_classes = len(classes)
+            class_indices = list(range(n_classes))
 
-            y_bin = label_binarize(y_test, classes=classes)
+            # Binarize using integer indices (y_test is already 0/1/2…)
+            y_bin = label_binarize(y_test, classes=class_indices)
             if y_bin.shape[1] == 1:
-                # Binary case — sklearn returns single column
                 y_bin = np.hstack([1 - y_bin, y_bin])
 
             fig_roc = go.Figure()
@@ -187,11 +189,10 @@ else:
                 fig_roc.add_trace(go.Scatter(
                     x=fpr, y=tpr,
                     mode="lines",
-                    name=f"Class {cls} (AUC = {auc_val:.3f})",
+                    name=f"{cls} (AUC = {auc_val:.3f})",
                     line=dict(color=palette[i % len(palette)], width=2),
                 ))
 
-            # Diagonal reference
             fig_roc.add_trace(go.Scatter(
                 x=[0, 1], y=[0, 1],
                 mode="lines",
@@ -215,68 +216,7 @@ else:
             st.error(f"Could not render ROC curves: {exc}")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SECTION 3 — Calibration Plot
-# ══════════════════════════════════════════════════════════════════════════════
-st.subheader("Probability Calibration")
-
-if roc_data is None:
-    st.info("Run training first to generate diagnostic data (roc_data.json).")
-else:
-    entry = roc_data.get(diag_key)
-    if entry is None:
-        st.warning(f"No calibration data entry found for key: `{diag_key}`")
-    else:
-        try:
-            from sklearn.calibration import calibration_curve
-            from sklearn.preprocessing import label_binarize
-
-            y_test = np.array(entry["y_test"])
-            y_prob = np.array(entry["y_prob"])
-            classes = entry.get("classes", sorted(set(y_test.tolist())))
-
-            y_bin = label_binarize(y_test, classes=classes)
-            if y_bin.shape[1] == 1:
-                y_bin = np.hstack([1 - y_bin, y_bin])
-
-            fig_cal = go.Figure()
-            palette = px.colors.qualitative.Set1
-
-            for i, cls in enumerate(classes):
-                frac_pos, mean_pred = calibration_curve(
-                    y_bin[:, i], y_prob[:, i], n_bins=10, strategy="uniform"
-                )
-                fig_cal.add_trace(go.Scatter(
-                    x=mean_pred, y=frac_pos,
-                    mode="lines+markers",
-                    name=f"Class {cls}",
-                    line=dict(color=palette[i % len(palette)], width=2),
-                    marker=dict(size=7),
-                ))
-
-            # Perfect calibration diagonal
-            fig_cal.add_trace(go.Scatter(
-                x=[0, 1], y=[0, 1],
-                mode="lines",
-                name="Perfect calibration",
-                line=dict(color="black", dash="dash", width=1),
-            ))
-
-            fig_cal.update_layout(
-                title=f"Calibration plot — {sample_type} | {tp_label} | {model}",
-                xaxis_title="Mean predicted probability",
-                yaxis_title="Observed fraction of positives",
-                height=420,
-                xaxis=dict(range=[0, 1]),
-                yaxis=dict(range=[0, 1.05]),
-            )
-            st.plotly_chart(fig_cal, use_container_width=True)
-        except ImportError:
-            st.error("scikit-learn is required for calibration curve computation.")
-        except Exception as exc:
-            st.error(f"Could not render calibration plot: {exc}")
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SECTION 4 — Aggregated VIP Scores
+# SECTION 3 — Aggregated VIP Scores
 # ══════════════════════════════════════════════════════════════════════════════
 st.subheader("Aggregated VIP Scores — All Runs")
 
