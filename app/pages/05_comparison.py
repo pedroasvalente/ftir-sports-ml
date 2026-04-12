@@ -40,11 +40,11 @@ if timepoints is not None and "timepoints" in sub.columns:
     sub = sub[sub["timepoints"] == timepoints]
 
 if sub.empty:
-    st.warning("Sem resultados para esta combinação ainda.")
+    st.warning("No results found for this matrix / timepoint combination.")
     st.stop()
 
 # ── Radar chart ───────────────────────────────────────────────────────────────
-st.subheader(f"Radar — todas as métricas por modelo ({matrix})")
+st.subheader(f"Performance radar — all metrics by model ({matrix})")
 
 best_per_model = (
     sub.sort_values("balanced_accuracy", ascending=False)
@@ -72,12 +72,12 @@ for i, row in best_per_model.iterrows():
 fig_radar.update_layout(
     polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
     height=500,
-    title=f"{matrix} — comparação de modelos em todas as métricas",
+    title=f"{matrix} — model comparison across all classification metrics",
 )
 st.plotly_chart(fig_radar, use_container_width=True)
 
 # ── Side-by-side metric bars ───────────────────────────────────────────────────
-st.subheader("Métricas lado a lado")
+st.subheader("Classification metrics — best run per model")
 
 melted = best_per_model.melt(
     id_vars="model", value_vars=METRIC_COLS,
@@ -87,8 +87,8 @@ melted = best_per_model.melt(
 fig_bar = px.bar(
     melted, x="metric", y="value", color="model",
     barmode="group",
-    title=f"{matrix} — comparação de métricas",
-    labels={"value": "Score", "metric": "Métrica"},
+    title=f"{matrix} — metric comparison (best run per model)",
+    labels={"value": "Score", "metric": "Metric"},
     color_discrete_map=model_colors,
     text_auto=".3f",
 )
@@ -97,23 +97,26 @@ st.plotly_chart(fig_bar, use_container_width=True)
 
 # ── Scatter: balanced_accuracy vs MCC ────────────────────────────────────────
 if "mcc" in sub.columns and sub["mcc"].notna().any():
-    st.subheader("Balanced Accuracy vs MCC — todas as runs")
+    st.subheader("Balanced accuracy vs. MCC — all runs")
     fig_sc = px.scatter(
         sub, x="mcc", y="balanced_accuracy",
         color="model", symbol="model",
         hover_data=[c for c in ["model", "search", "timepoints", "n_synthetic"] if c in sub.columns],
-        title=f"{matrix} — todas as runs",
-        labels={"mcc": "MCC", "balanced_accuracy": "Balanced Accuracy"},
+        title=f"{matrix} — all runs",
+        labels={"mcc": "Matthews Correlation Coefficient (MCC)",
+                "balanced_accuracy": "Balanced Accuracy"},
         color_discrete_map=model_colors,
     )
-    fig_sc.add_hline(y=0.8, line_dash="dot", line_color="gray", annotation_text="BA = 0.80")
-    fig_sc.add_vline(x=0.6, line_dash="dot", line_color="gray", annotation_text="MCC = 0.60")
+    fig_sc.add_hline(y=0.8, line_dash="dot", line_color="gray",
+                     annotation_text="Balanced accuracy = 0.80")
+    fig_sc.add_vline(x=0.6, line_dash="dot", line_color="gray",
+                     annotation_text="MCC = 0.60")
     fig_sc.update_traces(marker_size=10)
     fig_sc.update_layout(height=420)
     st.plotly_chart(fig_sc, use_container_width=True)
 
 # ── Cross-matrix summary table ────────────────────────────────────────────────
-st.subheader("Resumo cross-matrix — melhor modelo por matriz")
+st.subheader("Cross-matrix summary — best-performing model per biological matrix")
 
 all_best = []
 for mat in SAMPLE_TYPES:

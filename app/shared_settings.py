@@ -205,12 +205,12 @@ def render_data_source_sidebar(results_dir) -> tuple[pd.DataFrame | None, bool]:
         if not token:
             st.warning("No DAGSHUB_USER_TOKEN found in secrets.")
             return None, True
-        with st.spinner("A carregar runs do DagsHub…"):
+        with st.spinner("Loading runs from DagsHub…"):
             df = load_from_dagshub(token)
         if df.empty:
-            st.info("Nenhuma run encontrada no DagsHub. Executa o treino primeiro.")
+            st.info("No runs found on DagsHub. Run training first.")
             return None, True
-        st.caption(f"**{len(df)} runs** carregadas do DagsHub MLflow")
+        st.caption(f"**{len(df)} runs** loaded from DagsHub MLflow")
         return df, True
     elif has_local:
         with st.sidebar:
@@ -219,7 +219,7 @@ def render_data_source_sidebar(results_dir) -> tuple[pd.DataFrame | None, bool]:
         df = pd.read_csv(selected_file)
         return df, False
     else:
-        st.info("Sem resultados locais nem no DagsHub. Executa `docker compose run --rm train` primeiro.")
+        st.info("No results found locally or on DagsHub. Run `docker compose run --rm train` to generate results.")
         return None, False
 
 
