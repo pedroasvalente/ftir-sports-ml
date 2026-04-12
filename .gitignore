@@ -12,11 +12,11 @@ venv/
 data/raw/
 
 # Results and models — large files
-results/
-models/
-mlruns/
-mlartifacts/
-reports/figures/
+/results/
+/models/
+/mlruns/
+/mlartifacts/
+/reports/
 
 # Environment
 .env
