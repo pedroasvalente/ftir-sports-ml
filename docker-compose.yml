@@ -1,0 +1,45 @@
+services:
+
+  streamlit:
+    build: .
+    command: streamlit run app/main.py --server.port=8501 --server.address=0.0.0.0
+    ports:
+      - "8501:8501"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      # mount source for live-reload without rebuild
+      - ./src:/app/src
+      - ./app:/app/app
+      # persist outputs
+      - ./results:/app/results
+      - ./reports:/app/reports
+      - mlruns:/app/mlruns
+    restart: unless-stopped
+
+  train:
+    build: .
+    entrypoint: ["python", "cli.py", "train"]
+    command: experiments/configs/study1_group_fam.json
+    profiles: ["train"]
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./src:/app/src
+      - ./experiments:/app/experiments
+      - ./results:/app/results
+      - ./reports:/app/reports
+      - mlruns:/app/mlruns
+
+  test:
+    build: .
+    command: pytest tests/ -v
+    profiles: ["test"]
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+
+volumes:
+  mlruns:

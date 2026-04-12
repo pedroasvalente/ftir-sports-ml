@@ -1,0 +1,54 @@
+[build-system]
+requires = ["flit_core >=3.2,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "ftir-sports-ml"
+version = "0.1.0"
+description = "FTIR spectroscopy and supervised ML for sport group discrimination across biological matrices"
+authors = [
+  { name = "Pedro Afonso Valente" },
+]
+license = { file = "LICENSE" }
+readme = "README.md"
+requires-python = ">=3.11.0"
+dependencies = [
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "xgboost",
+    "imbalanced-learn",
+    "scikit-optimize",
+    "statsmodels",
+    "scipy",
+    "matplotlib",
+    "seaborn",
+    "mlflow",
+    "dagshub",
+    "streamlit",
+    "plotly",
+    "typer",
+    "python-dotenv",
+    "loguru",
+    "openpyxl",
+    "pytest",
+]
+
+[project.scripts]
+ftir = "ftir.cli:app"
+
+[tool.ruff]
+line-length = 88
+src = ["src"]
+include = ["pyproject.toml", "src/**/*.py", "app/**/*.py", "cli.py"]
+indent-width = 4
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+fixable = ["ALL"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["ftir"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

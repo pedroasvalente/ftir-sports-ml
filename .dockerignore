@@ -1,0 +1,12 @@
+.git
+.env
+data/raw/
+results/
+reports/figures/
+mlruns/
+mlartifacts/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store

@@ -1,0 +1,22 @@
+{
+    "experiment_name": "Study1 | Sport Group",
+    "run_name": "study1_quick_test",
+
+    "targets_to_predict": ["group_fam"],
+    "sample_types": ["CAPILAR"],
+
+    "timepoints": [
+        [1]
+    ],
+
+    "model_types_to_train": ["random_forest"],
+    "searchs_hipermetrics": ["grid"],
+
+    "train_percentages": [0.7],
+    "scale": [true],
+    "apply_pls": [true],
+    "apply_smote_resampling": [true],
+    "n_components": [3],
+    "num_classes": [3],
+    "selected_group_fam": null
+}
