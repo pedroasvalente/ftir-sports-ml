@@ -55,7 +55,8 @@ def make_cv_splitter(
     Otherwise returns StratifiedKFold.
     """
     if groups is not None:
-        return StratifiedGroupKFold(n_splits=n_splits)
+        # shuffle=True + random_state ensures reproducible fold assignment across runs
+        return StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
     return StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
 
 

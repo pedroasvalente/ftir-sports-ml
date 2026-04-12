@@ -4,7 +4,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import GridSearchCV
-from skopt import BayesSearchCV
 
 from ftir.config import EXPERIMENTS_DIR, RESULTS_DIR, global_threshold_acc, init_mlflow, logger, random_seed
 from ftir.data.loader import get_ftir_columns, load_data
@@ -15,9 +14,16 @@ from ftir.preprocessing.pipeline import preprocess
 from ftir.visualization.plots import plot_confusion_matrix, plot_roc_curve, plot_vip_scores
 
 mlflow = init_mlflow()
-from mlflow.models import infer_signature
-from mlflow.tracking import MlflowClient
-client = MlflowClient()
+
+# Lazy-import MLflow helpers so a broken protobuf/skopt env doesn't crash at module load
+try:
+    from mlflow.models import infer_signature as _infer_signature
+    from mlflow.tracking import MlflowClient
+    _mlflow_client = MlflowClient()
+except Exception as _mlflow_import_err:
+    logger.warning(f"MLflow tracking helpers unavailable: {_mlflow_import_err}")
+    _infer_signature = None
+    _mlflow_client = None
 
 
 def run_experiment(config_path: str):
@@ -188,6 +194,10 @@ def _train_single(
             "model": config.desc_name,
             "search": search_label,
             "config": config_name,
+            # Methodological note: SMOTE is applied before CV, so cv_best_score
+            # is computed on folds that include synthetic samples. Final test-set
+            # metrics are unaffected (test set contains only real samples).
+            "cv_note": "SMOTE_before_CV" if apply_smote and n_synthetic > 0 else "clean_CV",
         })
         mlflow.log_params({
             "train_pct": train_pct,
@@ -202,14 +212,16 @@ def _train_single(
         for k, v in metrics.items():
             if k not in ("cm", "y_pred", "y_prob", "feature_importances") and v is not None:
                 mlflow.log_metric(k, float(v))
+        # cv_best_score: may be optimistic when SMOTE is used before CV
         mlflow.log_metric("cv_best_score", search.best_score_)
         mlflow.log_metric("cv_best_score_std", search.cv_results_["std_test_score"][search.best_index_])
 
         try:
-            sig = infer_signature(X_test, metrics["y_pred"])
-            mlflow.sklearn.log_model(best_model, "model", signature=sig)
-        except Exception:
-            pass
+            if _infer_signature is not None:
+                sig = _infer_signature(X_test, metrics["y_pred"])
+                mlflow.sklearn.log_model(best_model, "model", signature=sig)
+        except Exception as e:
+            logger.warning(f"MLflow model logging failed: {e}")
 
         balanced_acc = metrics["balanced_accuracy"]
         if balanced_acc >= global_threshold_acc / 100:
