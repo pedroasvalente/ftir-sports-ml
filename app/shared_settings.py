@@ -184,6 +184,48 @@ def load_local_results(results_dir) -> tuple[list, list]:
     return csv_files, run_names
 
 
+def _render_run_info(df: pd.DataFrame, run_label: str, source: str):
+    """
+    Render a compact run-identity info box below the data source controls.
+    Shows run name, row count, matrices, models and timepoint configs present.
+    """
+    n_runs = len(df)
+    matrices = sorted(df["sample_type"].dropna().unique()) if "sample_type" in df.columns else []
+    models   = sorted(df["model"].dropna().unique())       if "model"       in df.columns else []
+    tps      = sorted(df["timepoints"].dropna().unique())  if "timepoints"  in df.columns else []
+
+    # Try to surface the config / run_name tag
+    config_name = ""
+    if "config" in df.columns:
+        configs = df["config"].dropna().unique()
+        config_name = configs[0] if len(configs) == 1 else ", ".join(configs[:2])
+
+    with st.sidebar.expander("ℹ️ Loaded run", expanded=True):
+        st.markdown(f"**Source:** {source}")
+        if config_name:
+            st.markdown(f"**Run:** `{config_name}`")
+        st.markdown(f"**Total rows:** {n_runs}")
+        if matrices:
+            st.markdown(f"**Matrices ({len(matrices)}):** {', '.join(matrices)}")
+        if models:
+            st.markdown(f"**Models ({len(models)}):** {', '.join(models)}")
+        if tps:
+            tp_str = " · ".join([str(t) for t in tps])
+            st.markdown(f"**Timepoint configs:** {tp_str}")
+
+        # Best overall balanced accuracy as a quick headline metric
+        if "balanced_accuracy" in df.columns and df["balanced_accuracy"].notna().any():
+            best_ba   = df["balanced_accuracy"].max()
+            best_row  = df.loc[df["balanced_accuracy"].idxmax()]
+            best_mat  = best_row.get("sample_type", "?")
+            best_mod  = best_row.get("model", "?")
+            st.markdown(
+                f"**Best BA:** `{best_ba:.3f}` "
+                f"<small>({best_mat} / {best_mod})</small>",
+                unsafe_allow_html=True,
+            )
+
+
 def render_data_source_sidebar(results_dir) -> tuple[pd.DataFrame | None, bool]:
     """
     Render 'Data source' section in sidebar with DagsHub toggle + local run selector.
@@ -210,13 +252,17 @@ def render_data_source_sidebar(results_dir) -> tuple[pd.DataFrame | None, bool]:
         if df.empty:
             st.info("No runs found on DagsHub. Run training first.")
             return None, True
-        st.caption(f"**{len(df)} runs** loaded from DagsHub MLflow")
+        _render_run_info(df, run_label="DagsHub", source="DagsHub MLflow")
         return df, True
     elif has_local:
         with st.sidebar:
             selected_run = st.selectbox("Local run", run_names)
             selected_file = csv_files[run_names.index(selected_run)]
         df = pd.read_csv(selected_file)
+        # Inject run name as config column if not already present
+        if "config" not in df.columns or df["config"].isna().all():
+            df["config"] = selected_run
+        _render_run_info(df, run_label=selected_run, source=f"Local — `{selected_run}`")
         return df, False
     else:
         st.info("No results found locally or on DagsHub. Run `docker compose run --rm train` to generate results.")
