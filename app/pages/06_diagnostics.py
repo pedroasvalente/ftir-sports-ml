@@ -50,18 +50,29 @@ with st.sidebar:
 
     st.divider()
     st.subheader("Diagnostic run")
-    _csv_files, _run_names = load_local_results(RESULTS_DIR)
-    if _run_names:
+    # Only show runs that actually contain the JSON diagnostic files,
+    # sorted newest-first by directory modification time.
+    _results_path = Path(RESULTS_DIR)
+    _diag_runs = sorted(
+        [
+            d.name for d in _results_path.iterdir()
+            if d.is_dir() and any((d / f).exists() for f in
+                                  ["cm_data.json", "roc_data.json", "vip_data.json"])
+        ],
+        key=lambda n: (_results_path / n).stat().st_mtime,
+        reverse=True,  # newest first
+    )
+    if _diag_runs:
         run_name = st.selectbox(
             "Run",
-            options=_run_names,
-            help="Select a local training run to load cm_data.json, roc_data.json, vip_data.json",
+            options=_diag_runs,
+            help="Local training runs that contain diagnostic JSON files (newest first).",
         )
     else:
         run_name = st.text_input(
             "Run name (subdirectory of results/)",
             value="",
-            help="No local runs found. Enter the run folder name manually.",
+            help="No runs with diagnostic JSON files found locally. Run training first.",
         )
 
 # ── Helper: load JSON diagnostic files ────────────────────────────────────────

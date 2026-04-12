@@ -54,17 +54,23 @@ st.markdown(f"**{len(data)} samples** — {matrix}")
 # ── Build mean spectra per group ───────────────────────────────────────────────
 groups = sorted(data[group_col].dropna().unique())
 
-# Extended color + label lookup: works for both short keys (S/F/U) and full names.
-# group_labels maps "S"->"Sedentary", so invert it to also resolve "sedentary"->"S".
+# Extended color + label lookup: works for short keys (S/F/U), full names (football…),
+# and arbitrary values like timepoint integers. Falls back to a qualitative palette by index.
+_QUALITATIVE_PALETTE = [
+    "#e41a1c", "#377eb8", "#4daf4a", "#984ea3",
+    "#ff7f00", "#a65628", "#f781bf", "#999999",
+]
 _inv_labels = {v.lower(): k for k, v in group_labels.items()}
-_inv_labels.update({k.lower(): k for k in group_colors})  # ensure short keys also resolve
+_inv_labels.update({k.lower(): k for k in group_colors})
 
-def _resolve_color(grp_str: str) -> str:
-    """Return colour for a group value regardless of whether it is a short key or full name."""
+def _resolve_color(grp_str: str, fallback_idx: int = 0) -> str:
+    """Return colour for a group value. Falls back to qualitative palette if unmapped."""
     if grp_str in group_colors:
         return group_colors[grp_str]
     key = _inv_labels.get(grp_str.lower())
-    return group_colors.get(key, "#888888")
+    if key:
+        return group_colors.get(key, _QUALITATIVE_PALETTE[fallback_idx % len(_QUALITATIVE_PALETTE)])
+    return _QUALITATIVE_PALETTE[fallback_idx % len(_QUALITATIVE_PALETTE)]
 
 def _resolve_label(grp_str: str) -> str:
     """Return display label for a group value."""
@@ -93,10 +99,10 @@ fig.add_vrect(
 # ── Individual spectra (optional) and mean spectra per group ──────────────────
 mean_records: list[dict] = []
 
-for grp in groups:
+for idx, grp in enumerate(groups):
     grp_str = str(grp)
     label = _resolve_label(grp_str)
-    color = _resolve_color(grp_str)
+    color = _resolve_color(grp_str, fallback_idx=idx)
 
     sub = data[data[group_col] == grp]
     spectra = sub[ftir_cols].values.astype(float)
