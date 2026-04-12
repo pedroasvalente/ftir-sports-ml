@@ -22,6 +22,9 @@ TRAINING_DATA_PATH = os.environ.get(
 random_seed = int(os.environ.get("RANDOM_SEED", 52))
 global_threshold_acc = int(os.environ.get("GLOBAL_THRESHOLD_ACC", 70))
 
+# FTIR atmospheric CO₂ / water vapour absorption region to exclude from analysis
+WATER_REGION = (1850, 2500)  # wavenumbers (cm⁻¹)
+
 try:
     from tqdm import tqdm
     logger.remove(0)

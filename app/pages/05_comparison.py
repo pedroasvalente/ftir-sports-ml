@@ -138,3 +138,126 @@ if all_best:
         .background_gradient(subset=["balanced_accuracy"], cmap="RdYlGn", vmin=0.5, vmax=1.0),
         use_container_width=True,
     )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Timepoint configuration comparison — Wilcoxon signed-rank test
+# ══════════════════════════════════════════════════════════════════════════════
+st.subheader("Timepoint configuration comparison — Wilcoxon signed-rank test")
+
+_TP_SINGLE = "[1]"
+_TP_ALL    = "[1, 2, 3]"
+
+_required_tps = {_TP_SINGLE, _TP_ALL}
+_available_tps = set(df["timepoints"].dropna().unique()) if "timepoints" in df.columns else set()
+
+if not _required_tps.issubset(_available_tps):
+    st.info(
+        "Both timepoint configurations `[1]` and `[1, 2, 3]` must be present in the results "
+        "to run the Wilcoxon signed-rank test. "
+        f"Available configurations: {sorted(_available_tps) or 'none'}."
+    )
+else:
+    try:
+        from scipy import stats as _scipy_stats
+
+        _df_tp1   = df[df["timepoints"] == _TP_SINGLE].copy()
+        _df_tp123 = df[df["timepoints"] == _TP_ALL].copy()
+
+        # For each model, compute best BA per matrix under each timepoint config
+        # then pair them across matrices for the signed-rank test.
+        _models = sorted(df["model"].dropna().unique()) if "model" in df.columns else []
+
+        _wilcox_rows = []
+        for _model in _models:
+            _sub1   = _df_tp1[_df_tp1["model"] == _model]
+            _sub123 = _df_tp123[_df_tp123["model"] == _model]
+
+            # Best balanced_accuracy per matrix
+            _best1 = (
+                _sub1.groupby("sample_type")["balanced_accuracy"]
+                .max()
+                .rename("ba_tp1")
+            )
+            _best123 = (
+                _sub123.groupby("sample_type")["balanced_accuracy"]
+                .max()
+                .rename("ba_tp123")
+            )
+
+            _paired = pd.concat([_best1, _best123], axis=1).dropna()
+            if len(_paired) < 2:
+                continue  # not enough paired observations
+
+            _x = _paired["ba_tp1"].values
+            _y = _paired["ba_tp123"].values
+
+            _res = _scipy_stats.wilcoxon(_x, _y, alternative="two-sided")
+            _w   = _res.statistic
+            _p   = _res.pvalue
+
+            if _p >= 0.05:
+                _sig = "n.s."
+            elif _p < 0.01:
+                _sig = "**"
+            else:
+                _sig = "*"
+
+            _wilcox_rows.append({
+                "Model":                _model,
+                "Mean BA — tp=[1]":     f"{_x.mean():.3f}",
+                "Mean BA — tp=[1,2,3]": f"{_y.mean():.3f}",
+                "W statistic":          f"{_w:.1f}",
+                "p-value":              f"{_p:.4f}",
+                "Significance":         _sig,
+                # Keep numeric copies for chart
+                "_ba_tp1":   _x.mean(),
+                "_ba_tp123": _y.mean(),
+            })
+
+        if _wilcox_rows:
+            _wdf = pd.DataFrame(_wilcox_rows)
+
+            # Display table without internal numeric cols
+            _display_cols = [
+                "Model", "Mean BA — tp=[1]", "Mean BA — tp=[1,2,3]",
+                "W statistic", "p-value", "Significance",
+            ]
+            st.dataframe(_wdf[_display_cols].set_index("Model"), use_container_width=True)
+
+            # Bar chart comparing mean BA per model for each timepoint config
+            _chart_df = pd.melt(
+                _wdf[["Model", "_ba_tp1", "_ba_tp123"]],
+                id_vars="Model",
+                value_vars=["_ba_tp1", "_ba_tp123"],
+                var_name="Timepoints",
+                value_name="Mean balanced accuracy",
+            )
+            _chart_df["Timepoints"] = _chart_df["Timepoints"].map(
+                {"_ba_tp1": "tp = [1]", "_ba_tp123": "tp = [1, 2, 3]"}
+            )
+
+            fig_wilcox = px.bar(
+                _chart_df,
+                x="Model",
+                y="Mean balanced accuracy",
+                color="Timepoints",
+                barmode="group",
+                color_discrete_sequence=["#2166ac", "#d6604d"],
+                labels={"Model": "Classifier", "Mean balanced accuracy": "Mean balanced accuracy"},
+                title="Mean balanced accuracy per model — timepoint [1] vs. [1, 2, 3] (best run per matrix)",
+                text_auto=".3f",
+            )
+            fig_wilcox.update_layout(height=420, yaxis_range=[0, 1.05])
+            st.plotly_chart(fig_wilcox, use_container_width=True)
+
+            st.caption(
+                "Statistical significance legend: n.s. p ≥ 0.05 · * p < 0.05 · ** p < 0.01  "
+                "(two-sided Wilcoxon signed-rank test, paired by biological matrix)."
+            )
+        else:
+            st.info("Insufficient paired data to run Wilcoxon signed-rank tests.")
+
+    except ImportError:
+        st.error("scipy is required for the Wilcoxon signed-rank test (`pip install scipy`).")
+    except Exception as _exc:
+        st.error(f"Could not compute Wilcoxon tests: {_exc}")
