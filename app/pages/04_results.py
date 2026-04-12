@@ -3,146 +3,30 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[2] / "src"))
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-import os
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
 from ftir.config import RESULTS_DIR
 from ftir.data.config import SAMPLE_TYPES
-from shared_settings import render_appearance_sidebar
+from shared_settings import METRIC_COLS_ALL, render_appearance_sidebar, render_data_source_sidebar
 
 st.set_page_config(page_title="ML Results", layout="wide")
 st.title("ML Results")
 
-# ── Load results: local CSV or DagsHub MLflow ─────────────────────────────────
-
-DAGSHUB_MLFLOW_URI = "https://dagshub.com/pedroasvalente/ftir-sports-ml.mlflow"
-METRIC_COLS_ALL = ["balanced_accuracy", "mcc", "cohen_kappa", "f1_weighted", "f1_macro", "roc_auc"]
-
-
-@st.cache_data(ttl=300)
-def load_from_dagshub(token: str) -> pd.DataFrame:
-    """Fetch all child runs from DagsHub MLflow REST API (no mlflow Python client needed)."""
-    import requests
-
-    base = DAGSHUB_MLFLOW_URI + "/api/2.0/mlflow"
-    auth = ("pedroasvalente", token)
-    headers = {"Content-Type": "application/json"}
-
-    # 1. List all experiments
-    resp = requests.get(f"{base}/experiments/search", auth=auth,
-                        params={"max_results": 1000})
-    resp.raise_for_status()
-    experiments = resp.json().get("experiments", [])
-
-    rows = []
-    for exp in experiments:
-        exp_id = exp["experiment_id"]
-        exp_name = exp["name"]
-
-        # 2. Search runs — only child runs (have "model" tag)
-        page_token = None
-        while True:
-            body = {
-                "experiment_ids": [exp_id],
-                "filter": "tags.model != ''",
-                "max_results": 1000,
-            }
-            if page_token:
-                body["page_token"] = page_token
-            r = requests.post(f"{base}/runs/search", auth=auth,
-                              headers=headers, json=body)
-            r.raise_for_status()
-            data = r.json()
-
-            for run in data.get("runs", []):
-                info = run.get("info", {})
-                tags = {t["key"]: t["value"] for t in run.get("data", {}).get("tags", [])}
-                metrics = {m["key"]: m["value"] for m in run.get("data", {}).get("metrics", [])}
-                params = {p["key"]: p["value"] for p in run.get("data", {}).get("params", [])}
-
-                # Skip parent runs (no model tag value)
-                if not tags.get("model"):
-                    continue
-
-                row = {
-                    "run_id": info.get("run_id", ""),
-                    "experiment": exp_name,
-                    "sample_type": tags.get("sample_type", ""),
-                    "target": tags.get("target", ""),
-                    "timepoints": tags.get("timepoints", ""),
-                    "model": tags.get("model", ""),
-                    "search": tags.get("search", ""),
-                    "config": tags.get("config", ""),
-                    "n_train": params.get("n_train"),
-                    "n_test": params.get("n_test"),
-                    "n_synthetic": params.get("n_synthetic"),
-                    "apply_pls": params.get("apply_pls"),
-                    **{m: metrics.get(m) for m in METRIC_COLS_ALL},
-                }
-                rows.append(row)
-
-            page_token = data.get("next_page_token")
-            if not page_token:
-                break
-
-    df = pd.DataFrame(rows) if rows else pd.DataFrame()
-    # Cast metric columns to float where possible
-    for col in METRIC_COLS_ALL:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-    return df
-
-
-def load_from_local() -> tuple[pd.DataFrame, list[str]]:
-    results_dir = Path(RESULTS_DIR)
-    csv_files = list(results_dir.rglob("results_summary.csv"))
-    if not csv_files:
-        return pd.DataFrame(), []
-    run_names = [f.parent.name for f in csv_files]
-    return csv_files, run_names
-
-
-# ── Sidebar ──────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.header("Data source")
-    token = os.environ.get("DAGSHUB_USER_TOKEN", "")
-    use_dagshub = st.toggle(
-        "Load from DagsHub",
-        value=bool(token),
-        help="Fetches live runs from DagsHub MLflow. Requires token in secrets.",
-    )
-
-csv_files, run_names = load_from_local()
-has_local = len(run_names) > 0
-
-with st.sidebar:
-    st.header("Filters")
-
-if use_dagshub:
-    if not token:
-        st.warning("No DAGSHUB_USER_TOKEN found in secrets. Add it in Streamlit Cloud → Settings → Secrets.")
-        st.stop()
-    with st.spinner("Fetching runs from DagsHub…"):
-        df = load_from_dagshub(token)
-    if df.empty:
-        st.info("No runs found on DagsHub yet. Run the training first.")
-        st.stop()
-    st.caption(f"**{len(df)} runs** loaded from DagsHub MLflow")
-elif has_local:
-    with st.sidebar:
-        selected_run = st.selectbox("Local run", run_names)
-        selected_file = csv_files[run_names.index(selected_run)]
-    df = pd.read_csv(selected_file)
-else:
-    st.info("No results found locally or on DagsHub. Run `docker compose run --rm train` first.")
+# ── Load data ─────────────────────────────────────────────────────────────────
+df, use_dagshub = render_data_source_sidebar(RESULTS_DIR)
+if df is None:
     st.stop()
 
 # ── Shared sidebar controls ───────────────────────────────────────────────────
 _, _, model_colors, matrix_colors = render_appearance_sidebar(show_models=True, show_matrices=True)
 
+METRIC_COLS = [c for c in METRIC_COLS_ALL if c in df.columns]
+FMT = {c: "{:.3f}" for c in METRIC_COLS}
+
 with st.sidebar:
+    st.header("Filters")
     matrix_filter = st.multiselect("Matrix", SAMPLE_TYPES, default=SAMPLE_TYPES)
     model_filter = st.multiselect(
         "Model", sorted(df["model"].dropna().unique()),
@@ -151,12 +35,8 @@ with st.sidebar:
     tp_opts = sorted(df["timepoints"].dropna().unique()) if "timepoints" in df.columns else []
     tp_filter = st.multiselect("Timepoints", tp_opts, default=tp_opts) if tp_opts else []
 
-    metric_opts = [c for c in METRIC_COLS_ALL if c in df.columns and df[c].notna().any()]
-    metric = st.selectbox("Sort by", metric_opts)
+    metric = st.selectbox("Sort by", [c for c in METRIC_COLS if df[c].notna().any()])
     top_n = st.slider("Top-N per matrix", 1, 10, 3)
-
-METRIC_COLS = [c for c in METRIC_COLS_ALL if c in df.columns]
-FMT = {c: "{:.3f}" for c in METRIC_COLS}
 
 # ── Filter ────────────────────────────────────────────────────────────────────
 filtered = df[df["sample_type"].isin(matrix_filter) & df["model"].isin(model_filter)]
