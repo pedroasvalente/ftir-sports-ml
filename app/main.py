@@ -24,39 +24,41 @@ with st.sidebar:
 
 render_appearance_sidebar()
 
-# ── Hero header ────────────────────────────────────────────────────────────────
-st.title("FTIR-Based Sport Group Discrimination — Study 1")
+# ── Title ──────────────────────────────────────────────────────────────────────
+st.title("ATR-FTIR Spectroscopy for Sport Group Discrimination — Study 1")
 st.caption(
     "Supervised machine learning for physical activity level classification "
-    "across five biological matrices using ATR-FTIR spectroscopy"
+    "across five biological matrices"
 )
 
 st.divider()
 
-# ── Study context ──────────────────────────────────────────────────────────────
+# ── Study overview ─────────────────────────────────────────────────────────────
 col_left, col_right = st.columns([3, 2], gap="large")
 
 with col_left:
-    st.subheader("Study Overview")
+    st.subheader("Background")
     st.markdown(
         """
-        This dashboard presents the analytical pipeline and results for **Study 1** of a PhD
-        research project investigating the potential of attenuated total reflectance Fourier-transform
-        infrared (ATR-FTIR) spectroscopy as a rapid, reagent-free tool for discriminating individuals
-        by physical activity level.
+        This dashboard presents the analytical pipeline and classification results for Study 1
+        of a PhD research project at the University of Coimbra. The study investigates whether
+        attenuated total reflectance Fourier-transform infrared (ATR-FTIR) spectroscopy of biological
+        matrices can discriminate individuals according to their physical activity level.
 
-        **Research question:** Can FTIR spectral signatures of biological matrices differentiate
-        sedentary individuals from football players and ultramarathon runners?
+        Spectra from five matrices — capillary blood, plasma, saliva, serum, and urine — were
+        collected from sedentary individuals, football players, and ultramarathon runners across
+        up to three timepoints. Supervised classifiers were trained on PLS-DA-reduced spectral data;
+        person-aware cross-validation (StratifiedGroupKFold on `person_code`) prevents data leakage
+        from repeated-measures participants.
 
-        **Approach:** Supervised classification models were trained on pre-processed spectral data
-        from five biological matrices. Person-aware cross-validation (StratifiedGroupKFold) prevents
-        data leakage across repeated measures. Feature relevance is quantified via PLS-DA variable
-        importance in projection (VIP) scores.
+        Feature relevance is expressed as PLS-DA variable importance in projection (VIP) scores.
+        Bootstrap 95 % confidence intervals on balanced accuracy, MCC, and ROC-AUC are reported
+        for all models.
         """
     )
 
 with col_right:
-    st.subheader("Study Design at a Glance")
+    st.subheader("Study parameters")
     st.markdown(
         """
         | Parameter | Details |
@@ -65,60 +67,44 @@ with col_right:
         | **Biological matrices** | Capillary blood · Plasma · Saliva · Serum · Urine |
         | **Timepoints** | 1 (baseline) · 2 · 3 |
         | **Classifiers** | Random Forest · MLP · Decision Tree · XGBoost |
-        | **Dimensionality reduction** | PLS-DA (10 components) |
-        | **Resampling** | SMOTE inside CV loop (train only) |
+        | **Dim. reduction** | PLS-DA (10 components) |
+        | **Class balancing** | SMOTE inside CV fold (train only) |
         | **Train / test split** | 70 % / 30 % (person-stratified) |
-        | **CV strategy** | 5-fold StratifiedGroupKFold |
+        | **Cross-validation** | 5-fold StratifiedGroupKFold |
         | **Primary metric** | Balanced accuracy (95 % bootstrap CI) |
         """
     )
 
 st.divider()
 
-# ── Getting started ────────────────────────────────────────────────────────────
-st.subheader("How to Use This Dashboard")
+# ── Navigation guide ───────────────────────────────────────────────────────────
+st.subheader("Dashboard structure")
+st.markdown(
+    """
+    **Data Overview** — Sample counts by matrix, group, and timepoint; descriptive statistics
+    (mean ± SD) for age, body fat, and fat-free mass.
 
-s1, s2, s3, s4 = st.columns(4)
-with s1:
-    st.markdown(
-        """
-        **1 — Explore the data**
+    **Spectra** — Mean ± SD ATR-FTIR absorption profiles per sport group for a selected matrix.
+    Individual traces can be overlaid. The atmospheric CO₂ / H₂O absorption region
+    (1 850–2 500 cm⁻¹) is indicated.
 
-        Start with **📋 Data Overview** to review participant demographics,
-        sample counts per matrix and group, and spectral quality indicators.
-        """
-    )
-with s2:
-    st.markdown(
-        """
-        **2 — Inspect the spectra**
+    **PCA Explorer** — Principal component analysis scores coloured by group, timepoint,
+    or continuous covariates; variance explained; loading heatmap; biplot.
 
-        Use **📈 Spectra** to visualise mean ± SD absorption profiles for each
-        sport group. Toggle individual traces and compare across timepoints.
-        The atmospheric CO₂/H₂O region (1 850–2 500 cm⁻¹) is marked.
-        """
-    )
-with s3:
-    st.markdown(
-        """
-        **3 — Dimensionality reduction**
+    **PLS-DA** — Supervised group separation in LV space; VIP score spectrum with the
+    VIP > 1 threshold indicated.
 
-        **🔵 PCA Explorer** reveals sample clustering and variance structure.
-        **🔴 PLS-DA** shows supervised group separation and VIP scores
-        identifying the most discriminant wavenumbers.
-        """
-    )
-with s4:
-    st.markdown(
-        """
-        **4 — Evaluate ML performance**
+    **ML Results** — Full results table with sortable metrics, per-matrix top-N leaderboard,
+    performance heatmap, distribution boxplots, and per-class sensitivity breakdown.
 
-        **📊 ML Results** lists all runs with sortable metrics and CIs.
-        **⚖️ Model Comparison** benchmarks classifiers across matrices.
-        **🔬 Diagnostics** shows confusion matrices, ROC curves, and
-        calibration plots for any selected run.
-        """
-    )
+    **Model Comparison** — Radar chart and grouped bar chart benchmarking all classifiers
+    across metrics; scatter plot of balanced accuracy vs. MCC; cross-matrix summary;
+    Wilcoxon signed-rank test comparing timepoint configurations [1] vs. [1, 2, 3].
+
+    **Diagnostics** — Interactive confusion matrix, ROC curves (one-vs-rest), probability
+    calibration plot, and aggregated VIP score spectrum for a selected training run.
+    """
+)
 
 st.divider()
 
@@ -126,35 +112,31 @@ st.divider()
 with st.expander("Methodological notes", expanded=False):
     st.markdown(
         """
-        ### Data leakage prevention
-        Because some participants contributed samples at multiple timepoints (repeated measures),
-        a naïve random split could place the same individual in both training and test sets,
-        artificially inflating performance estimates. This pipeline uses **person-aware splits**:
-        all samples from a given participant are assigned exclusively to either the training
-        or the test partition. Cross-validation uses `StratifiedGroupKFold` with `groups = person_code`.
+        **Data leakage prevention.**
+        Because some participants contributed samples at multiple timepoints, a naïve random
+        split could place the same individual in both training and test sets, inflating performance
+        estimates. All samples from a given participant are assigned exclusively to either the
+        training or the test partition. Cross-validation uses `StratifiedGroupKFold` with
+        `groups = person_code`.
 
-        ### SMOTE placement
-        Synthetic Minority Over-sampling Technique (SMOTE) is applied **inside** the cross-validation
-        loop using an `imblearn.pipeline.Pipeline`. This ensures that synthetic samples generated from
-        minority-class observations in the training fold never appear in the validation fold,
-        avoiding inflated CV scores.
+        **SMOTE placement.**
+        Synthetic minority over-sampling (SMOTE) is applied inside the cross-validation loop
+        via an `imblearn.pipeline.Pipeline`. Synthetic samples generated from training-fold
+        observations therefore never appear in the validation fold, preventing inflated CV scores.
 
-        ### VIP scores
-        Variable Importance in Projection (VIP) scores are computed directly from the PLS-DA
-        solution using the standard formula involving x-scores, x-weights, and y-loadings.
-        Wavenumbers with VIP > 1.0 are considered influential for group discrimination.
+        **VIP scores.**
+        Variable importance in projection (VIP) scores are derived directly from the PLS-DA
+        solution (x-scores, x-weights, y-loadings). Wavenumbers with VIP > 1.0 are considered
+        influential for group discrimination.
 
-        ### Confidence intervals
-        Bootstrap 95 % CIs on balanced accuracy, MCC, and ROC-AUC are estimated from
-        N = 500 bootstrap resamples of the held-out test set.
+        **Confidence intervals.**
+        Bootstrap 95 % CIs on balanced accuracy, MCC, and ROC-AUC are estimated from N = 500
+        bootstrap resamples of the held-out test set.
 
-        ### Timepoint configurations
-        Results are reported for two configurations:
-        - `[1]` — baseline timepoint only (independent samples)
-        - `[1, 2, 3]` — all three timepoints pooled (repeated measures, requires GroupKFold)
-
-        A two-sided Wilcoxon signed-rank test (paired by matrix) is used on the
-        **Model Comparison** page to assess whether including additional timepoints
-        significantly changes balanced accuracy.
+        **Timepoint configurations.**
+        Results are reported for two configurations: `[1]` (baseline only, independent samples)
+        and `[1, 2, 3]` (all timepoints pooled, repeated measures — GroupKFold required).
+        A two-sided Wilcoxon signed-rank test (paired by matrix) on the Model Comparison page
+        assesses whether including additional timepoints significantly changes balanced accuracy.
         """
     )

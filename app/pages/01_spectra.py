@@ -54,6 +54,27 @@ st.markdown(f"**{len(data)} samples** — {matrix}")
 # ── Build mean spectra per group ───────────────────────────────────────────────
 groups = sorted(data[group_col].dropna().unique())
 
+# Extended color + label lookup: works for both short keys (S/F/U) and full names.
+# group_labels maps "S"->"Sedentary", so invert it to also resolve "sedentary"->"S".
+_inv_labels = {v.lower(): k for k, v in group_labels.items()}
+_inv_labels.update({k.lower(): k for k in group_colors})  # ensure short keys also resolve
+
+def _resolve_color(grp_str: str) -> str:
+    """Return colour for a group value regardless of whether it is a short key or full name."""
+    if grp_str in group_colors:
+        return group_colors[grp_str]
+    key = _inv_labels.get(grp_str.lower())
+    return group_colors.get(key, "#888888")
+
+def _resolve_label(grp_str: str) -> str:
+    """Return display label for a group value."""
+    if grp_str in group_labels:
+        return group_labels[grp_str]
+    key = _inv_labels.get(grp_str.lower())
+    if key and key in group_labels:
+        return group_labels[key]
+    return grp_str.title()
+
 fig = go.Figure()
 
 # Atmospheric CO₂ / H₂O shaded region
@@ -74,8 +95,8 @@ mean_records: list[dict] = []
 
 for grp in groups:
     grp_str = str(grp)
-    label = group_labels.get(grp_str, grp_str)
-    color = group_colors.get(grp_str, "#888888")
+    label = _resolve_label(grp_str)
+    color = _resolve_color(grp_str)
 
     sub = data[data[group_col] == grp]
     spectra = sub[ftir_cols].values.astype(float)

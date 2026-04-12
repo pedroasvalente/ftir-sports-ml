@@ -77,48 +77,6 @@ fig_counts = px.bar(
 fig_counts.update_layout(showlegend=False, height=380)
 st.plotly_chart(fig_counts, use_container_width=True)
 
-# ── Section 3: Box plots — age and body fat by sport group ────────────────────
-st.subheader("Participant characteristics by sport group")
-
-demo_vars = [
-    ("age_years", "Age (years)"),
-    ("bodyfat_perc", "Body fat (%)"),
-]
-
-for col, label in demo_vars:
-    if col not in df.columns:
-        st.info(f"Column `{col}` not found — skipping.")
-        continue
-
-    plot_df = df[["group_fam", "group", col]].dropna(subset=[col])
-    if "group_fam" not in plot_df.columns:
-        st.info("Column `group_fam` not found — skipping box plots.")
-        break
-
-    # Map group labels for display
-    plot_df = plot_df.copy()
-    plot_df["group_label"] = plot_df["group_fam"].map(
-        lambda x: group_labels.get(str(x), str(x))
-    )
-    # Assign colour per group_fam key
-    colour_seq = [
-        group_colors.get(str(k), "#888888")
-        for k in sorted(plot_df["group_fam"].unique())
-    ]
-
-    fig_box = px.box(
-        plot_df,
-        x="group_label",
-        y=col,
-        color="group_label",
-        color_discrete_sequence=colour_seq,
-        points="all",
-        labels={"group_label": "Sport group", col: label},
-        title=f"{label} by sport group",
-    )
-    fig_box.update_layout(height=380, showlegend=False)
-    st.plotly_chart(fig_box, use_container_width=True)
-
 # ── Section 4: Descriptive statistics table ───────────────────────────────────
 st.subheader("Descriptive statistics per sport group (mean ± SD)")
 

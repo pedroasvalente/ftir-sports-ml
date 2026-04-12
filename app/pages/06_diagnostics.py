@@ -12,7 +12,7 @@ import streamlit as st
 
 from ftir.config import RESULTS_DIR, WATER_REGION
 from ftir.data.config import SAMPLE_TYPES
-from shared_settings import render_appearance_sidebar, render_data_source_sidebar
+from shared_settings import render_appearance_sidebar, render_data_source_sidebar, load_local_results
 
 st.set_page_config(page_title="Model Diagnostics", layout="wide")
 st.title("Model Diagnostics")
@@ -49,12 +49,20 @@ with st.sidebar:
         search = "default"
 
     st.divider()
-    st.subheader("Diagnostic JSON run")
-    run_name = st.text_input(
-        "Run name (subdirectory of results/)",
-        value="",
-        help="Enter the run folder name to load cm_data.json, roc_data.json, vip_data.json",
-    )
+    st.subheader("Diagnostic run")
+    _csv_files, _run_names = load_local_results(RESULTS_DIR)
+    if _run_names:
+        run_name = st.selectbox(
+            "Run",
+            options=_run_names,
+            help="Select a local training run to load cm_data.json, roc_data.json, vip_data.json",
+        )
+    else:
+        run_name = st.text_input(
+            "Run name (subdirectory of results/)",
+            value="",
+            help="No local runs found. Enter the run folder name manually.",
+        )
 
 # ── Helper: load JSON diagnostic files ────────────────────────────────────────
 def _load_json(run: str, filename: str):
