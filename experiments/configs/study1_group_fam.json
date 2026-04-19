@@ -1,6 +1,6 @@
 {
     "experiment_name": "Study1 | Sport Group",
-    "run_name": "study1_group_fam",
+    "run_name": "study1_group_fam_v2",
 
     "targets_to_predict": ["group_fam"],
     "sample_types": ["CAPILAR", "PLASMA", "SALIVA", "SERUM", "URINE"],

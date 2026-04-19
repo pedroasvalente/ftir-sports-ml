@@ -51,7 +51,13 @@ class PLSDA:
         s = np.diag(T.T @ T @ Q.T @ Q)  # SSY explained per component
         total_s = s.sum()
 
-        w_norm = W / np.linalg.norm(W, axis=0, keepdims=True)  # normalised weights
+        if total_s == 0:
+            # No variance explained — return uniform VIP of 1.0 (uninformative)
+            return np.ones(p)
+
+        col_norms = np.linalg.norm(W, axis=0, keepdims=True)
+        col_norms = np.where(col_norms == 0, 1.0, col_norms)  # avoid /0 on zero-weight columns
+        w_norm = W / col_norms  # normalised weights
         vips = np.sqrt(p * (w_norm**2 @ s) / total_s)
         return vips
 

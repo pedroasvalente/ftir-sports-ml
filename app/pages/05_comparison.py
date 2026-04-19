@@ -138,3 +138,4 @@ if all_best:
         .background_gradient(subset=["balanced_accuracy"], cmap="RdYlGn", vmin=0.5, vmax=1.0),
         use_container_width=True,
     )
+

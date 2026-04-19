@@ -65,17 +65,23 @@ def plot_roc_curve(
 ):
     _ensure_dir(save_dir)
     fig, ax = plt.subplots()
-    for i, cls in enumerate(label_encoder):
-        if y_test_encoded is not None and y_prob is not None:
-            fpr, tpr, _ = roc_curve(
-                (y_test_encoded == i).astype(int), y_prob[:, i]
-            )
-            ax.plot(fpr, tpr, label=f"{cls}")
-    ax.set_xlabel("FPR")
-    ax.set_ylabel("TPR")
+    has_curves = False
+    if y_prob is not None:
+        for i, cls in enumerate(label_encoder):
+            try:
+                y_bin = (y_prob.argmax(axis=1) == i).astype(int) if y_test_encoded is None \
+                    else (y_test_encoded == i).astype(int)
+                fpr, tpr, _ = roc_curve(y_bin, y_prob[:, i])
+                ax.plot(fpr, tpr, label=f"{cls}")
+                has_curves = True
+            except Exception:
+                pass
+    ax.set_xlabel("False Positive Rate")
+    ax.set_ylabel("True Positive Rate")
     auc_str = f" (AUC={roc_auc:.3f})" if roc_auc else ""
     ax.set_title(f"{target} — ROC {sample_type}{auc_str}")
-    ax.legend()
+    if has_curves:
+        ax.legend()
     plt.tight_layout()
     fname = f"{target}_{sample_type}_{int(train_pct*100)}pct_{run_name}_roc.png"
     fpath = os.path.join(save_dir, fname)
