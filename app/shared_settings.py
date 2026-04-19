@@ -151,8 +151,16 @@ def load_from_dagshub(token: str) -> pd.DataFrame:
                 params = {p["key"]: p["value"] for p in run.get("data", {}).get("params", [])}
                 if not tags.get("model"):
                     continue
+                # run_name is in info.run_name (MLflow ≥ 2.0) or the mlflow.runName tag
+                run_name = (
+                    info.get("run_name")
+                    or tags.get("mlflow.runName")
+                    or tags.get("run_name")
+                    or ""
+                )
                 rows.append({
                     "run_id": info.get("run_id", ""),
+                    "run_name": run_name,
                     "experiment": exp_name,
                     "sample_type": tags.get("sample_type", ""),
                     "target": tags.get("target", ""),
@@ -250,18 +258,21 @@ def render_data_source_sidebar(results_dir) -> tuple[pd.DataFrame | None, bool]:
         st.info("No runs found on DagsHub. Run training first.")
         return None, True
 
-    config_vals = sorted(df_all["config"].dropna().unique()) if "config" in df_all.columns else []
+    # Use run_name to distinguish runs (e.g. study1_group_fam_v2);
+    # fall back to config tag if run_name is empty for all rows.
+    _name_col = "run_name" if ("run_name" in df_all.columns and df_all["run_name"].any()) else "config"
+    run_vals = sorted(df_all[_name_col].dropna().unique())
 
     with st.sidebar:
         st.header("Run")
-        if config_vals:
-            selected_config = st.selectbox(
+        if run_vals:
+            selected_run = st.selectbox(
                 "Filter by run",
-                options=["All"] + config_vals,
-                help="Select a specific training run (config tag) or show all.",
+                options=["All"] + run_vals,
+                help="Select a specific training run or show all.",
             )
-            df = df_all[df_all["config"] == selected_config].copy() if selected_config != "All" else df_all
-            run_label = selected_config if selected_config != "All" else "All runs"
+            df = df_all[df_all[_name_col] == selected_run].copy() if selected_run != "All" else df_all
+            run_label = selected_run if selected_run != "All" else "All runs"
         else:
             df = df_all
             run_label = "All runs"
