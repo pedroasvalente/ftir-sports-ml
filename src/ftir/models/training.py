@@ -136,6 +136,7 @@ def run_experiment(config_path: str):
                                                 num_classes=cfg.get("num_classes", [3])[0],
                                                 parent_run_id=tp_run.info.run_id,
                                                 config_name=Path(config_path).name,
+                                                run_slug=run_slug,
                                                 group_fam=cfg.get("selected_group_fam"),
                                             )
                                             if result:
@@ -158,7 +159,7 @@ def _train_single(
     df, ftir_cols, wavenumbers,
     sample_type, target, timepoints, tp_label, train_pct, model_name, search_type,
     apply_pls, apply_smote, scale, n_components, num_classes,
-    parent_run_id, config_name, group_fam=None,
+    parent_run_id, config_name, run_slug="", group_fam=None,
 ) -> tuple[dict | None, dict | None]:
     from ftir.data.loader import filter_sample_data
     from sklearn.preprocessing import LabelEncoder
@@ -246,6 +247,7 @@ def _train_single(
             "model":       config.desc_name,
             "search":      search_label,
             "config":      config_name,
+            "run_slug":    run_slug,
             # SMOTE is now applied inside CV: cv_best_score is uncontaminated
             "cv_note":     f"SMOTE_{n_synthetic_note}",
         })

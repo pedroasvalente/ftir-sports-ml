@@ -161,6 +161,7 @@ def load_from_dagshub(token: str) -> pd.DataFrame:
                 rows.append({
                     "run_id": info.get("run_id", ""),
                     "run_name": run_name,
+                    "run_slug": tags.get("run_slug", ""),
                     "experiment": exp_name,
                     "sample_type": tags.get("sample_type", ""),
                     "target": tags.get("target", ""),
@@ -258,10 +259,13 @@ def render_data_source_sidebar(results_dir) -> tuple[pd.DataFrame | None, bool]:
         st.info("No runs found on DagsHub. Run training first.")
         return None, True
 
-    # Use run_name to distinguish runs (e.g. study1_group_fam_v2);
-    # fall back to config tag if run_name is empty for all rows.
-    _name_col = "run_name" if ("run_name" in df_all.columns and df_all["run_name"].any()) else "config"
-    run_vals = sorted(df_all[_name_col].dropna().unique())
+    # Use run_slug tag to distinguish runs (e.g. study1_group_fam_v2).
+    # For older runs without the tag, fall back to config filename.
+    if "run_slug" in df_all.columns and df_all["run_slug"].str.strip().any():
+        _name_col = "run_slug"
+    else:
+        _name_col = "config"
+    run_vals = sorted(df_all[_name_col].replace("", pd.NA).dropna().unique())
 
     with st.sidebar:
         st.header("Run")
