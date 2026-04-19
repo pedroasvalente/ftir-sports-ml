@@ -228,8 +228,14 @@ def _render_run_info(df: pd.DataFrame, run_label: str, source: str):
 
 def render_data_source_sidebar(results_dir) -> tuple[pd.DataFrame | None, bool]:
     """
-    Render 'Data source' section in sidebar with DagsHub toggle + local run selector.
-    Returns (df, use_dagshub). df is None if nothing loaded yet (caller should st.stop()).
+    Render 'Data source' section in sidebar with DagsHub toggle + run selector.
+
+    - DagsHub ON  → loads all runs from DagsHub, then shows a 'Run' selectbox
+                    populated from the 'config' tags so the user can filter to
+                    a specific run (or keep All).
+    - DagsHub OFF → shows a 'Run' selectbox from local results_summary.csv files.
+
+    Returns (df, use_dagshub). df is None if nothing loaded (caller should st.stop()).
     """
     token = os.environ.get("DAGSHUB_USER_TOKEN", "")
     csv_files, run_names = load_local_results(results_dir)
@@ -248,34 +254,43 @@ def render_data_source_sidebar(results_dir) -> tuple[pd.DataFrame | None, bool]:
             st.warning("No DAGSHUB_USER_TOKEN found in secrets.")
             return None, True
         with st.spinner("Loading runs from DagsHub…"):
-            df = load_from_dagshub(token)
-        if df.empty:
+            df_all = load_from_dagshub(token)
+        if df_all.empty:
             st.info("No runs found on DagsHub. Run training first.")
             return None, True
-        # If multiple configs (runs) present, let the user filter to one
-        if "config" in df.columns:
-            config_vals = sorted(df["config"].dropna().unique())
-            if len(config_vals) > 1:
-                with st.sidebar:
-                    selected_config = st.selectbox(
-                        "Run (DagsHub)",
-                        options=["All"] + config_vals,
-                        help="Filter results to a specific training run by config tag.",
-                    )
-                if selected_config != "All":
-                    df = df[df["config"] == selected_config].copy()
-        _render_run_info(df, run_label="DagsHub", source="DagsHub MLflow")
+
+        # Run selector: filter by config tag
+        config_vals = sorted(df_all["config"].dropna().unique()) if "config" in df_all.columns else []
+        with st.sidebar:
+            if config_vals:
+                selected_config = st.selectbox(
+                    "Run",
+                    options=["All"] + config_vals,
+                    help="Filter to a specific training run by its config tag.",
+                )
+                df = df_all[df_all["config"] == selected_config].copy() if selected_config != "All" else df_all
+                run_label = selected_config if selected_config != "All" else "All runs"
+            else:
+                df = df_all
+                run_label = "DagsHub"
+
+        _render_run_info(df, run_label=run_label, source="DagsHub MLflow")
         return df, True
+
     elif has_local:
         with st.sidebar:
-            selected_run = st.selectbox("Local run", run_names)
-            selected_file = csv_files[run_names.index(selected_run)]
+            selected_run = st.selectbox(
+                "Run",
+                options=run_names,
+                help="Select a local training run (results_summary.csv).",
+            )
+        selected_file = csv_files[run_names.index(selected_run)]
         df = pd.read_csv(selected_file)
-        # Inject run name as config column if not already present
         if "config" not in df.columns or df["config"].isna().all():
             df["config"] = selected_run
         _render_run_info(df, run_label=selected_run, source=f"Local — `{selected_run}`")
         return df, False
+
     else:
         st.info("No results found locally or on DagsHub. Run `docker compose run --rm train` to generate results.")
         return None, False
