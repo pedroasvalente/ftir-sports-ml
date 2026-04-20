@@ -20,7 +20,6 @@ with st.sidebar:
     st.page_link("pages/03_plsda.py",       label="🔴 PLS-DA")
     st.page_link("pages/04_results.py",     label="📊 ML Results")
     st.page_link("pages/05_comparison.py",  label="⚖️  Model Comparison")
-    st.page_link("pages/06_diagnostics.py", label="🔬 Diagnostics")
 
 render_appearance_sidebar()
 
