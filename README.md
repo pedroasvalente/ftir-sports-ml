@@ -67,6 +67,29 @@ docker compose run --rm train experiments/configs/study1_group_fam.json
 
 Results are saved to `results/` and logged to DagsHub automatically.
 
+### After a new training run — updating the dashboard diagnostics
+
+The **Model Diagnostics** page (confusion matrices, ROC curves, VIP scores) reads
+diagnostic data from DagsHub artifacts. These are uploaded automatically at the end
+of each training run. If you need to upload them manually for an existing run:
+
+```bash
+# Replace <run_slug> with the run_name in your experiment config (e.g. study1_group_fam_v2)
+.venv/bin/python - <<'EOF'
+from pathlib import Path
+from ftir.models.training import _log_artifacts_to_mlflow
+_log_artifacts_to_mlflow(
+    "<run_slug>",
+    Path("results/<run_slug>"),
+    "FTIR Study 1 - Sport Group Discrimination",
+)
+EOF
+```
+
+After the upload you can verify the artifacts at:
+**→ [dagshub.com/pedroasvalente/ftir-sports-ml/experiments](https://dagshub.com/pedroasvalente/ftir-sports-ml/experiments)**
+under the experiment **"FTIR Study 1 - Sport Group Discrimination | diagnostics"**.
+
 ---
 
 ## Study design

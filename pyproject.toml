@@ -37,6 +37,9 @@ dependencies = [
 [project.scripts]
 ftir = "ftir.cli:app"
 
+[tool.flit.module]
+name = "ftir"
+
 [tool.ruff]
 line-length = 88
 src = ["src"]

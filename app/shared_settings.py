@@ -285,6 +285,78 @@ def render_data_source_sidebar(results_dir) -> tuple[pd.DataFrame | None, bool]:
     return df, True
 
 
+@st.cache_data(ttl=300)
+def fetch_diagnostic_artifacts(token: str, run_slug: str) -> tuple[dict | None, dict | None, dict | None]:
+    """
+    Download cm_data, roc_data, vip_data JSONs from DagsHub via MLflow Python client.
+    Returns (cm_data, roc_data, vip_data) — any entry is None if not found.
+    """
+    import json as _json
+    import os
+    import tempfile
+    import requests
+
+    base = DAGSHUB_MLFLOW_URI + "/api/2.0/mlflow"
+    auth = ("pedroasvalente", token)
+    headers = {"Content-Type": "application/json"}
+
+    # Step 1: find the diagnostics experiment ID
+    try:
+        r = requests.get(f"{base}/experiments/search", auth=auth, params={"max_results": 100})
+        r.raise_for_status()
+        experiments = r.json().get("experiments", [])
+    except Exception:
+        return None, None, None
+
+    diag_exp_id = next(
+        (e["experiment_id"] for e in experiments if "diagnostics" in e.get("name", "")),
+        None,
+    )
+    if diag_exp_id is None:
+        return None, None, None
+
+    # Step 2: find the summary run
+    body = {
+        "experiment_ids": [diag_exp_id],
+        "filter": f"tags.run_slug = '{run_slug}'",
+        "max_results": 1,
+    }
+    try:
+        r = requests.post(f"{base}/runs/search", auth=auth, headers=headers, json=body)
+        r.raise_for_status()
+        runs = r.json().get("runs", [])
+    except Exception:
+        return None, None, None
+
+    if not runs:
+        return None, None, None
+
+    run_id = runs[0]["info"]["run_id"]
+    artifact_uri = runs[0]["info"].get("artifact_uri", "")
+
+    # Step 3: download via MLflow Python client (handles DagsHub storage backend)
+    try:
+        import mlflow
+        os.environ["MLFLOW_TRACKING_USERNAME"] = "pedroasvalente"
+        os.environ["MLFLOW_TRACKING_PASSWORD"] = token
+        mlflow.set_tracking_uri(DAGSHUB_MLFLOW_URI)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            results = []
+            for fname in ["cm_data.json", "roc_data.json", "vip_data.json"]:
+                try:
+                    local_path = mlflow.artifacts.download_artifacts(
+                        run_id=run_id, artifact_path=fname, dst_path=tmp
+                    )
+                    with open(local_path) as fh:
+                        results.append(_json.load(fh))
+                except Exception:
+                    results.append(None)
+            return tuple(results)
+    except Exception:
+        return None, None, None
+
+
 def apply_group_labels(series, group_labels=None):
     """Rename group values in a pandas Series using the label map."""
     if group_labels is None:

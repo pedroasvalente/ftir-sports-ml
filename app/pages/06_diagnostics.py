@@ -12,7 +12,10 @@ import streamlit as st
 
 from ftir.config import RESULTS_DIR, WATER_REGION
 from ftir.data.config import SAMPLE_TYPES
-from shared_settings import render_appearance_sidebar, render_data_source_sidebar, load_local_results
+from shared_settings import (
+    render_appearance_sidebar, render_data_source_sidebar,
+    load_local_results, fetch_diagnostic_artifacts,
+)
 
 st.set_page_config(page_title="Model Diagnostics", layout="wide")
 st.title("Model Diagnostics")
@@ -50,33 +53,43 @@ with st.sidebar:
 
     st.divider()
     st.subheader("Diagnostic run")
-    # Only show runs that actually contain the JSON diagnostic files,
-    # sorted newest-first by directory modification time.
-    _results_path = Path(RESULTS_DIR)
-    _diag_runs = sorted(
-        [
-            d.name for d in _results_path.iterdir()
-            if d.is_dir() and any((d / f).exists() for f in
-                                  ["cm_data.json", "roc_data.json", "vip_data.json"])
-        ],
-        key=lambda n: (_results_path / n).stat().st_mtime,
-        reverse=True,  # newest first
-    )
-    if _diag_runs:
+
+    if use_dagshub:
+        # On DagsHub: use the run_slug from the already-loaded df
+        _slug_col = "run_slug" if ("run_slug" in df.columns and df["run_slug"].str.strip().any()) else "config"
+        _slug_opts = sorted(df[_slug_col].replace("", __import__("pandas").NA).dropna().unique())
         run_name = st.selectbox(
-            "Run",
-            options=_diag_runs,
-            help="Local training runs that contain diagnostic JSON files (newest first).",
+            "Run (slug)",
+            options=_slug_opts if _slug_opts else [""],
+            help="Training run to load diagnostic artifacts from DagsHub.",
         )
     else:
-        run_name = st.text_input(
-            "Run name (subdirectory of results/)",
-            value="",
-            help="No runs with diagnostic JSON files found locally. Run training first.",
+        # Local: scan results/ for directories that have the JSON files
+        _results_path = Path(RESULTS_DIR)
+        _diag_runs = sorted(
+            [
+                d.name for d in (_results_path.iterdir() if _results_path.exists() else [])
+                if d.is_dir() and any((d / f).exists() for f in
+                                      ["cm_data.json", "roc_data.json", "vip_data.json"])
+            ],
+            key=lambda n: (_results_path / n).stat().st_mtime,
+            reverse=True,
         )
+        if _diag_runs:
+            run_name = st.selectbox(
+                "Run",
+                options=_diag_runs,
+                help="Local training runs that contain diagnostic JSON files (newest first).",
+            )
+        else:
+            run_name = st.text_input(
+                "Run name (subdirectory of results/)",
+                value="",
+                help="No runs with diagnostic JSON files found locally. Run training first.",
+            )
 
-# ── Helper: load JSON diagnostic files ────────────────────────────────────────
-def _load_json(run: str, filename: str):
+# ── Load diagnostic JSON files (DagsHub first, local fallback) ────────────────
+def _load_json_local(run: str, filename: str):
     """Load a JSON file from results/<run>/<filename>. Returns None if not found."""
     if not run:
         return None
@@ -86,14 +99,31 @@ def _load_json(run: str, filename: str):
     with open(p) as fh:
         return json.load(fh)
 
-cm_data  = _load_json(run_name, "cm_data.json")
-roc_data = _load_json(run_name, "roc_data.json")
-vip_data = _load_json(run_name, "vip_data.json")
+
+_token = __import__("os").environ.get("DAGSHUB_USER_TOKEN", "")
+
+if use_dagshub and _token and run_name:
+    with st.spinner("Loading diagnostic data from DagsHub…"):
+        cm_data, roc_data, vip_data = fetch_diagnostic_artifacts(_token, run_name)
+    with st.expander("🔍 Debug", expanded=True):
+        st.write(f"**run_name:** `{run_name}`")
+        st.write(f"**cm_data:** {'✅' if cm_data else '❌ None'}")
+        st.write(f"**roc_data:** {'✅' if roc_data else '❌ None'}")
+        st.write(f"**vip_data:** {'✅' if vip_data else '❌ None'}")
+    if cm_data is None and roc_data is None and vip_data is None:
+        st.info(
+            "No diagnostic artifacts found on DagsHub for this run. "
+            "Re-run training to upload them, or select a local run below."
+        )
+else:
+    cm_data  = _load_json_local(run_name, "cm_data.json")
+    roc_data = _load_json_local(run_name, "roc_data.json")
+    vip_data = _load_json_local(run_name, "vip_data.json")
 
 _any_diag = any(x is not None for x in [cm_data, roc_data, vip_data])
-if run_name and not _any_diag:
+if run_name and not _any_diag and not (use_dagshub and _token):
     st.warning(
-        f"No diagnostic JSON files found in `results/{run_name}/`. "
+        f"No diagnostic data found for `{run_name}`. "
         "Run training first to generate diagnostic data."
     )
 

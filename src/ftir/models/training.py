@@ -68,6 +68,26 @@ def _save_detail_files(run_slug: str, detail_records: list[dict]):
     logger.info(f"Detail files saved to {out_dir}")
 
 
+# ── Artifact upload ───────────────────────────────────────────────────────────
+
+def _log_artifacts_to_mlflow(run_slug: str, out_dir: Path, base_name: str = "diagnostics"):
+    """
+    Log the three diagnostic JSON files as MLflow artifacts under a dedicated
+    'diagnostics' run so the Streamlit app can download them from DagsHub.
+    """
+    try:
+        mlflow.set_experiment(f"{base_name} | diagnostics")
+        with mlflow.start_run(run_name=f"summary__{run_slug}") as run:
+            mlflow.set_tags({"run_slug": run_slug, "summary_type": "diagnostics"})
+            for fname in ["cm_data.json", "roc_data.json", "vip_data.json"]:
+                p = out_dir / fname
+                if p.exists():
+                    mlflow.log_artifact(str(p))
+        logger.info(f"Diagnostic artifacts logged to MLflow run {run.info.run_id}")
+    except Exception as exc:
+        logger.warning(f"Could not log diagnostic artifacts to MLflow: {exc}")
+
+
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 def run_experiment(config_path: str):
@@ -151,6 +171,7 @@ def run_experiment(config_path: str):
         summary.to_csv(out_dir / "results_summary.csv", index=False)
         logger.info(f"Results saved to {out_dir / 'results_summary.csv'}")
         _save_detail_files(run_slug, detail_records)
+        _log_artifacts_to_mlflow(run_slug, out_dir, base_name)
 
 
 # ── Single training run ───────────────────────────────────────────────────────
