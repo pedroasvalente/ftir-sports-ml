@@ -59,6 +59,13 @@ with st.sidebar:
     target_col = st.selectbox("Target", ["group_fam", "bodyfat_classes_simplified"])
     top_n_vip = st.slider("Top-N VIP wavenumbers", 10, 50, 20)
 
+    st.divider()
+    st.subheader("VIP Regions Table")
+    vip_pct_threshold = st.slider("Top % threshold", 5, 30, 20,
+                                  help="Select wavenumbers in the top N% of VIP scores")
+    min_consecutive   = st.slider("Min. consecutive points", 3, 20, 5,
+                                  help="Minimum consecutive points to define a region (~2.78 cm⁻¹ per point)")
+
     st.header("Appearance")
     plot_title = st.text_input("Scores plot title", value=f"PLS-DA — {matrix}")
     marker_size = st.slider("Marker size", 4, 16, 8)
@@ -218,3 +225,83 @@ st.caption(
     f"**{n_important} / {len(vip_valid)} wavenumbers** with VIP > 1 (above-average contribution). "
     "VIP scores are computed directly from the PLS-DA model, replacing the previous back-projection approach."
 )
+
+# ── VIP Regions Table ─────────────────────────────────────────────────────────
+st.subheader("Key Spectral Regions (VIP)")
+st.caption(
+    f"Contiguous regions in the top {vip_pct_threshold}% of VIP scores "
+    f"with ≥ {min_consecutive} consecutive points (~{min_consecutive * 2.78:.0f} cm⁻¹). "
+    "Atmospheric CO₂ / water vapour region (1850–2500 cm⁻¹) excluded."
+)
+
+BAND_ASSIGNMENTS = [
+    (929,  1000, "C–O–C ring deformation",           "Polysaccharides / glycoproteins"),
+    (1000, 1080, "C–O stretch / phosphodiester",      "Carbohydrates, nucleic acids"),
+    (1080, 1200, "C–O / P=O symmetric stretch",       "Carbohydrates, phospholipids"),
+    (1200, 1300, "P=O asymmetric stretch",             "Phospholipids, DNA/RNA backbone"),
+    (1300, 1400, "C–N / CH₂ wag (Amide III)",         "Proteins (Amide III)"),
+    (1400, 1480, "CH₂/CH₃ bending",                   "Lipids, fatty acids"),
+    (1480, 1600, "N–H bend + C–N (Amide II)",          "Proteins (Amide II)"),
+    (1600, 1700, "C=O stretch (Amide I)",              "Proteins (Amide I)"),
+    (1700, 1800, "C=O stretch (esters / acids)",       "Lipids, fatty acids"),
+    (2500, 2620, "S–H stretch",                        "Thiols / cysteine residues"),
+    (2620, 2800, "Overtone region",                    "—"),
+    (2800, 2870, "CH₂ symmetric stretch",              "Lipids, fatty acids"),
+    (2870, 2960, "CH₃ asymmetric stretch",             "Lipids, proteins"),
+    (2960, 3051, "C–H aromatic / overtone",            "Aromatic amino acids"),
+]
+
+def _assign(lo, hi):
+    best, best_overlap = ("—", "—"), 0
+    for blo, bhi, band, bio in BAND_ASSIGNMENTS:
+        ov = min(hi, bhi) - max(lo, blo)
+        if ov > best_overlap:
+            best_overlap, best = ov, (band, bio)
+    return best
+
+def _find_regions(wn, vip, pct=20, min_pts=5):
+    water_mask = (wn < 1850) | (wn > 2500)
+    wn_f, vip_f = wn[water_mask], vip[water_mask]
+    order = np.argsort(wn_f)
+    wn_s, vip_s = wn_f[order], vip_f[order]
+    threshold = np.percentile(vip_s, 100 - pct)
+    above = vip_s >= threshold
+    rows, i = [], 0
+    while i < len(above):
+        if above[i]:
+            j = i
+            while j < len(above) and above[j]:
+                j += 1
+            if (j - i) >= min_pts:
+                band, bio = _assign(wn_s[i], wn_s[j - 1])
+                rows.append({
+                    "Region (cm⁻¹)":    f"{wn_s[i]:.0f} – {wn_s[j-1]:.0f}",
+                    "Width (cm⁻¹)":     round(wn_s[j-1] - wn_s[i], 1),
+                    "Max VIP":          round(float(vip_s[i:j].max()), 3),
+                    "Mean VIP":         round(float(vip_s[i:j].mean()), 3),
+                    "Band assignment":  band,
+                    "Biochemical origin": bio,
+                })
+            i = j
+        else:
+            i += 1
+    return rows
+
+regions = _find_regions(wavenumbers, vip, pct=vip_pct_threshold, min_pts=min_consecutive)
+
+if regions:
+    reg_df = pd.DataFrame(regions)
+    st.dataframe(
+        reg_df.style.background_gradient(subset=["Max VIP", "Mean VIP"], cmap="Reds"),
+        use_container_width=True,
+        hide_index=True,
+    )
+    csv_bytes = reg_df.to_csv(index=False).encode()
+    st.download_button(
+        "⬇ Download table (CSV)",
+        data=csv_bytes,
+        file_name=f"vip_regions_{matrix}_top{vip_pct_threshold}pct_min{min_consecutive}pts.csv",
+        mime="text/csv",
+    )
+else:
+    st.info("No regions found with the current settings — try lowering the threshold or minimum points.")
