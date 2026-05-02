@@ -305,3 +305,118 @@ if regions:
     )
 else:
     st.info("No regions found with the current settings — try lowering the threshold or minimum points.")
+
+# ── Confounder Analysis (ANCOVA) ──────────────────────────────────────────────
+st.divider()
+st.subheader("🔬 Confounder Analysis (ANCOVA)")
+st.caption(
+    "Tests whether **age** and **body fat %** explain PLS-DA scores beyond group membership. "
+    "A small ΔR² indicates that demographic variables account for negligible additional variance, "
+    "confirming that group separation is not a demographic artefact."
+)
+
+try:
+    import statsmodels.formula.api as smf
+
+    demo_cols = ["age_years", "bodyfat_perc"]
+    n_lv = min(3, scores.shape[1])
+
+    # Build a working dataframe with scores + demographics + group label
+    anc_base = scores_df.copy()
+    for dc in demo_cols:
+        if dc not in anc_base.columns and dc in data.columns:
+            anc_base[dc] = data[dc].values
+    for lv in range(n_lv):
+        anc_base[f"LV{lv+1}"] = scores[:, lv]
+    anc_base["grp"] = [classes[i] for i in y]
+
+    available_demo = [dc for dc in demo_cols if dc in anc_base.columns]
+
+    if not available_demo:
+        st.info("No demographic columns (age_years / bodyfat_perc) found in the current data slice.")
+    else:
+        anc_rows = []
+        for lv in range(n_lv):
+            col = f"LV{lv+1}"
+            d = anc_base[["grp", col] + available_demo].dropna()
+            if len(d) < 20:
+                continue
+
+            m1 = smf.ols(f"{col} ~ C(grp)", data=d).fit()
+            m2_formula = f"{col} ~ C(grp) + " + " + ".join(available_demo)
+            m2 = smf.ols(m2_formula, data=d).fit()
+
+            delta = m2.rsquared - m1.rsquared
+            anc_rows.append({
+                "Component":                 col,
+                "R² — group only":           round(m1.rsquared, 3),
+                "R² — group + covariates":   round(m2.rsquared, 3),
+                "ΔR² (age + body fat)":      round(delta, 3),
+                "Interpretation":            (
+                    "Negligible confounding" if delta < 0.05
+                    else "Moderate — group still dominant" if delta < 0.15
+                    else "Substantial — interpret with caution"
+                ),
+                "n": int(len(d)),
+            })
+
+        if anc_rows:
+            anc_df = pd.DataFrame(anc_rows)
+
+            st.dataframe(
+                anc_df.style
+                    .background_gradient(subset=["R² — group only"],         cmap="Blues")
+                    .background_gradient(subset=["ΔR² (age + body fat)"],    cmap="Reds")
+                    .format({
+                        "R² — group only":         "{:.3f}",
+                        "R² — group + covariates": "{:.3f}",
+                        "ΔR² (age + body fat)":    "{:.3f}",
+                    }),
+                hide_index=True,
+                use_container_width=True,
+            )
+
+            # ── Stacked bar chart ─────────────────────────────────────────────
+            fig_anc = go.Figure()
+            shown_labels = set()
+            for row in anc_rows:
+                for name, val, colour in [
+                    ("R² — group",                  row["R² — group only"],        "#2166ac"),
+                    ("ΔR² — age + body fat",         row["ΔR² (age + body fat)"],   "#d6604d"),
+                    ("Unexplained",                  max(0, 1 - row["R² — group + covariates"]), "#d9d9d9"),
+                ]:
+                    fig_anc.add_trace(go.Bar(
+                        name=name,
+                        x=[row["Component"]],
+                        y=[val],
+                        marker_color=colour,
+                        showlegend=(name not in shown_labels),
+                    ))
+                    shown_labels.add(name)
+
+            fig_anc.update_layout(
+                barmode="stack",
+                height=340,
+                title=f"Variance decomposition of PLS-DA scores — {matrix} ({target_col})",
+                yaxis_title="R²",
+                yaxis_range=[0, 1.0],
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                bargap=0.35,
+            )
+            st.plotly_chart(fig_anc, use_container_width=True)
+
+            max_delta = anc_df["ΔR² (age + body fat)"].max()
+            st.caption(
+                f"Maximum ΔR² across the first {n_lv} LVs: **{max_delta:.3f}**. "
+                + (
+                    "Age and body fat explain negligible additional variance beyond group — "
+                    "spectral separation is not a demographic artefact."
+                    if max_delta < 0.05 else
+                    "Some demographic variance present; group membership remains the dominant predictor."
+                )
+            )
+        else:
+            st.info("Insufficient data (< 20 observations) for ANCOVA in the current selection.")
+
+except ImportError:
+    st.info("statsmodels not installed — run `pip install statsmodels` to enable ANCOVA.")

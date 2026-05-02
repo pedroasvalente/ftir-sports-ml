@@ -23,3 +23,9 @@ COPY data/ data/
 ENV PYTHONPATH=/app/src
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8501
+CMD ["streamlit", "run", "app/main.py", \
+     "--server.address=0.0.0.0", \
+     "--server.port=8501", \
+     "--server.headless=true"]
