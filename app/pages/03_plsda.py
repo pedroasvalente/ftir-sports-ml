@@ -238,7 +238,7 @@ BAND_ASSIGNMENTS = [
     (929,  1000, "C–O–C ring deformation",           "Polysaccharides / glycoproteins"),
     (1000, 1080, "C–O stretch / phosphodiester",      "Carbohydrates, nucleic acids"),
     (1080, 1200, "C–O / P=O symmetric stretch",       "Carbohydrates, phospholipids"),
-    (1200, 1300, "P=O asymmetric stretch",             "Phospholipids, DNA/RNA backbone"),
+    (1200, 1300, "P=O asymmetric stretch",             "Phospholipids"),
     (1300, 1400, "C–N / CH₂ wag (Amide III)",         "Proteins (Amide III)"),
     (1400, 1480, "CH₂/CH₃ bending",                   "Lipids, fatty acids"),
     (1480, 1600, "N–H bend + C–N (Amide II)",          "Proteins (Amide II)"),
