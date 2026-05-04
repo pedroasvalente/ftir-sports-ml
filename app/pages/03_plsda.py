@@ -306,6 +306,259 @@ if regions:
 else:
     st.info("No regions found with the current settings — try lowering the threshold or minimum points.")
 
+# ── Spectral Region Analysis (zone panels) ────────────────────────────────────
+if regions:
+    from scipy import stats as _scipy_stats
+    from scipy.integrate import trapezoid as _trapz
+    import plotly.subplots as _sp
+
+    st.divider()
+    st.subheader("Spectral Region Analysis")
+    st.caption(
+        "Mean ± SD spectra and AUC distributions per VIP region. "
+        "Pairwise comparisons via two-sided Mann–Whitney U test. "
+        "Download individual zone AUC data for external plotting."
+    )
+
+    X_raw   = data[ftir_cols].values.astype(float)
+    grp_arr = np.array([classes[i] for i in y])
+    cls_sorted = sorted(set(grp_arr))
+
+    disp_name = {c: group_labels.get(str(c), str(c)) for c in cls_sorted}
+    clr       = {c: group_colors.get(str(c), "#888888") for c in cls_sorted}
+
+    def _hex_rgba(h, a=0.18):
+        h = h.lstrip("#")
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return f"rgba({r},{g},{b},{a})"
+
+    def _zone_aucs(X, wn, lo, hi):
+        msk = (wn >= lo) & (wn <= hi)
+        if msk.sum() < 2:
+            return np.zeros(X.shape[0])
+        return np.array([_trapz(X[i, msk], wn[msk]) for i in range(X.shape[0])])
+
+    def _sig(p):
+        if p < 0.0001: return "****"
+        if p < 0.001:  return "***"
+        if p < 0.01:   return "**"
+        if p < 0.05:   return "*"
+        return "ns"
+
+    def _parse_region(s):
+        parts = s.replace("–", "-").replace("−", "-").split("-")
+        return float(parts[0].strip()), float(parts[1].strip())
+
+    ZONE_LETTERS = list("ABCDEFGHIJ")
+    SHADE_PAL = [
+        "rgba(180,180,180,0.28)", "rgba(100,180,120,0.22)",
+        "rgba(200,140,80,0.22)",  "rgba(80,140,200,0.22)",
+        "rgba(190,100,150,0.22)", "rgba(100,190,190,0.22)",
+        "rgba(200,170,80,0.22)",  "rgba(140,110,200,0.22)",
+    ]
+
+    # ── Overview spectrum with zone bands ─────────────────────────────────────
+    fig_ov = go.Figure()
+    for cls in cls_sorted:
+        idx_c = np.where(grp_arr == cls)[0]
+        for seg_mask, first_seg in [
+            (wavenumbers < 1850, True),
+            (wavenumbers > 2500, False),
+        ]:
+            wn_s = wavenumbers[seg_mask]
+            mn_s = X_raw[np.ix_(idx_c, seg_mask)].mean(axis=0)
+            fig_ov.add_trace(go.Scatter(
+                x=wn_s, y=mn_s, mode="lines",
+                name=disp_name[cls],
+                line=dict(color=clr[cls], width=2),
+                legendgroup=cls,
+                showlegend=first_seg,
+                hovertemplate=f"{disp_name[cls]}: %{{y:.4f}}<extra></extra>",
+            ))
+
+    for z_i, reg in enumerate(regions):
+        lo, hi = _parse_region(reg["Region (cm⁻¹)"])
+        fig_ov.add_vrect(
+            x0=lo, x1=hi,
+            fillcolor=SHADE_PAL[z_i % len(SHADE_PAL)],
+            layer="below", line_width=0,
+        )
+        fig_ov.add_annotation(
+            x=(lo + hi) / 2, y=1.06, yref="paper",
+            text=f"<b>{ZONE_LETTERS[z_i]}</b>",
+            showarrow=False, font=dict(size=10, color="#444"),
+        )
+
+    fig_ov.update_xaxes(autorange="reversed", title="Wavenumber (cm⁻¹)")
+    fig_ov.update_yaxes(title="Absorbance")
+    fig_ov.update_layout(
+        height=300,
+        title=f"Mean spectra — {matrix} · VIP zones highlighted",
+        margin=dict(t=55, b=40),
+        legend=dict(orientation="h", y=1.02, xanchor="right", x=1),
+        paper_bgcolor="white", plot_bgcolor="white",
+    )
+    st.plotly_chart(fig_ov, use_container_width=True)
+
+    # ── Zone panels (2-column grid) ────────────────────────────────────────────
+    n_zones = len(regions)
+    for row_i in range((n_zones + 1) // 2):
+        grid = st.columns(2)
+        for col_j in range(2):
+            z_i = row_i * 2 + col_j
+            if z_i >= n_zones:
+                break
+
+            reg     = regions[z_i]
+            lo, hi  = _parse_region(reg["Region (cm⁻¹)"])
+            letter  = ZONE_LETTERS[z_i]
+            band_nm = reg["Band assignment"]
+            bio_nm  = reg["Biochemical origin"]
+
+            z_mask   = (wavenumbers >= lo) & (wavenumbers <= hi)
+            wn_z     = wavenumbers[z_mask]
+            X_z      = X_raw[:, z_mask]
+            aucs_z   = _zone_aucs(X_raw, wavenumbers, lo, hi)
+
+            per_auc  = {c: aucs_z[grp_arr == c] for c in cls_sorted}
+            per_spec = {c: X_z[grp_arr == c]    for c in cls_sorted}
+
+            # Pairwise MWU
+            pairs   = [(0, 1), (0, 2), (1, 2)]
+            pw_res  = []
+            for pi, pj in pairs:
+                a, b = per_auc[cls_sorted[pi]], per_auc[cls_sorted[pj]]
+                if len(a) >= 3 and len(b) >= 3:
+                    _, p = _scipy_stats.mannwhitneyu(a, b, alternative="two-sided")
+                    pw_res.append((cls_sorted[pi], cls_sorted[pj], _sig(p), p))
+
+            # Figure: spectrum | violin
+            fig_z = _sp.make_subplots(
+                rows=1, cols=2,
+                column_widths=[0.46, 0.54],
+                horizontal_spacing=0.10,
+            )
+
+            # Left: mean ± SD per group
+            for cls in cls_sorted:
+                sp_arr = per_spec[cls]
+                mn, sd = sp_arr.mean(axis=0), sp_arr.std(axis=0)
+                c_hex  = clr[cls]
+                dn     = disp_name[cls]
+                fig_z.add_trace(go.Scatter(
+                    x=wn_z, y=mn, mode="lines",
+                    name=dn, line=dict(color=c_hex, width=2),
+                    legendgroup=cls, showlegend=False,
+                    hovertemplate=f"{dn}: %{{y:.5f}} cm⁻¹<extra></extra>",
+                ), row=1, col=1)
+                fig_z.add_trace(go.Scatter(
+                    x=np.concatenate([wn_z, wn_z[::-1]]),
+                    y=np.concatenate([mn + sd, (mn - sd)[::-1]]),
+                    fill="toself", fillcolor=_hex_rgba(c_hex, 0.15),
+                    line=dict(width=0), showlegend=False, hoverinfo="skip",
+                ), row=1, col=1)
+
+            # Right: violin per group
+            for cls in cls_sorted:
+                c_hex = clr[cls]
+                dn    = disp_name[cls]
+                vals  = per_auc[cls]
+                fig_z.add_trace(go.Violin(
+                    x=[dn] * len(vals), y=vals,
+                    name=dn, legendgroup=cls, showlegend=False,
+                    line_color=c_hex,
+                    fillcolor=_hex_rgba(c_hex, 0.40),
+                    box_visible=True,
+                    meanline_visible=True,
+                    points="all",
+                    jitter=0.25,
+                    pointpos=0,
+                    marker=dict(color=c_hex, size=4, opacity=0.55),
+                ), row=1, col=2)
+
+            # Significance brackets on violin
+            y_top  = float(np.percentile(aucs_z, 99))
+            y_bot  = float(np.percentile(aucs_z, 1))
+            y_span = y_top - y_bot
+            step   = y_span * 0.20
+
+            dn_list = [disp_name[c] for c in cls_sorted]
+
+            for b_i, (ca, cb, lbl, _) in enumerate(pw_res):
+                y_br   = y_top + step * (b_i + 1.1)
+                xa, xb = disp_name[ca], disp_name[cb]
+                xi     = dn_list.index(xa)
+                xj     = dn_list.index(xb)
+                x_mid  = dn_list[(xi + xj) // 2]   # middle category label
+
+                # Horizontal bracket line
+                fig_z.add_shape(
+                    type="line", row=1, col=2,
+                    x0=xa, x1=xb, y0=y_br, y1=y_br,
+                    line=dict(color="#333", width=1.2),
+                )
+                # Tick down on left
+                fig_z.add_shape(
+                    type="line", row=1, col=2,
+                    x0=xa, x1=xa,
+                    y0=y_br - step * 0.12, y1=y_br,
+                    line=dict(color="#333", width=1.2),
+                )
+                # Tick down on right
+                fig_z.add_shape(
+                    type="line", row=1, col=2,
+                    x0=xb, x1=xb,
+                    y0=y_br - step * 0.12, y1=y_br,
+                    line=dict(color="#333", width=1.2),
+                )
+                # Label
+                fig_z.add_annotation(
+                    x=x_mid, y=y_br + step * 0.18,
+                    xref="x2", yref="y2",
+                    text=f"<b>{lbl}</b>",
+                    showarrow=False, font=dict(size=11, color="#111"),
+                )
+
+            # Axis labels & layout
+            fig_z.update_xaxes(autorange="reversed", title="Wavenumber (cm⁻¹)", row=1, col=1)
+            fig_z.update_yaxes(title="Absorbance", row=1, col=1)
+            fig_z.update_yaxes(
+                title="AUC",
+                range=[y_bot - y_span * 0.05,
+                       y_top + step * (len(pw_res) + 1.8)],
+                row=1, col=2,
+            )
+            fig_z.update_layout(
+                title=dict(
+                    text=(
+                        f"<b>Zone {letter}</b>  {lo:.0f}–{hi:.0f} cm⁻¹ · {band_nm}<br>"
+                        f"<span style='font-size:11px;color:#666'>{bio_nm}</span>"
+                    ),
+                    font=dict(size=12), x=0.5, xanchor="center",
+                ),
+                height=400,
+                margin=dict(t=75, b=45, l=55, r=15),
+                paper_bgcolor="white",
+                plot_bgcolor="white",
+                violingap=0.2, violingroupgap=0.1,
+            )
+
+            grid[col_j].plotly_chart(fig_z, use_container_width=True)
+
+            # Download AUC CSV
+            dl_df = pd.DataFrame({
+                "group_code":    grp_arr,
+                "group_display": [disp_name[c] for c in grp_arr],
+                "AUC":           aucs_z,
+            })
+            grid[col_j].download_button(
+                label=f"⬇ Zone {letter} AUC data (CSV)",
+                data=dl_df.to_csv(index=False).encode(),
+                file_name=f"zone_{letter}_{matrix}_{lo:.0f}_{hi:.0f}_auc.csv",
+                mime="text/csv",
+                key=f"dl_zone_{z_i}_{matrix}_{vip_pct_threshold}",
+            )
+
 # ── Confounder Analysis (ANCOVA) ──────────────────────────────────────────────
 st.divider()
 st.subheader("🔬 Confounder Analysis (ANCOVA)")
