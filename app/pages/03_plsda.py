@@ -316,17 +316,20 @@ if regions:
     st.subheader("Spectral Region Analysis")
     st.caption(
         "Mean ± SD spectra and AUC distributions per VIP region. "
-        "Pairwise comparisons via two-sided Mann–Whitney U test. "
-        "Download individual zone AUC data for external plotting."
+        "Pairwise comparisons via two-sided Mann–Whitney U test."
     )
 
     ftir_cols = get_ftir_columns(data)
-    X_raw   = data[ftir_cols].values.astype(float)
-    grp_arr = np.array([classes[i] for i in y])
+    X_raw     = data[ftir_cols].values.astype(float)
+    grp_arr   = np.array([classes[i] for i in y])
     cls_sorted = sorted(set(grp_arr))
 
-    disp_name = {c: group_labels.get(str(c), str(c)) for c in cls_sorted}
-    clr       = {c: group_colors.get(str(c), "#888888") for c in cls_sorted}
+    disp_name  = {c: group_labels.get(str(c), str(c)) for c in cls_sorted}
+    # Robust color: try direct key ('F','S','U'), then match by display name
+    _dn_clr = {group_labels.get(str(k), str(k)): v for k, v in group_colors.items()}
+    clr = {c: (group_colors.get(str(c))
+               or _dn_clr.get(disp_name[c], "#888888"))
+           for c in cls_sorted}
 
     def _hex_rgba(h, a=0.18):
         h = h.lstrip("#")
@@ -334,10 +337,14 @@ if regions:
         return f"rgba({r},{g},{b},{a})"
 
     def _zone_aucs(X, wn, lo, hi):
+        """AUC via trapezoidal integration — sorts wavenumbers ascending first."""
         msk = (wn >= lo) & (wn <= hi)
         if msk.sum() < 2:
             return np.zeros(X.shape[0])
-        return np.array([_trapz(X[i, msk], wn[msk]) for i in range(X.shape[0])])
+        srt  = np.argsort(wn[msk])
+        wn_s = wn[msk][srt]
+        X_s  = X[:, msk][:, srt]
+        return np.array([np.abs(_trapz(X_s[i], wn_s)) for i in range(X.shape[0])])
 
     def _sig(p):
         if p < 0.0001: return "****"
@@ -351,18 +358,23 @@ if regions:
         return float(parts[0].strip()), float(parts[1].strip())
 
     ZONE_LETTERS = list("ABCDEFGHIJ")
-    SHADE_PAL = [
-        "rgba(180,180,180,0.28)", "rgba(100,180,120,0.22)",
-        "rgba(200,140,80,0.22)",  "rgba(80,140,200,0.22)",
-        "rgba(190,100,150,0.22)", "rgba(100,190,190,0.22)",
-        "rgba(200,170,80,0.22)",  "rgba(140,110,200,0.22)",
+    # Each zone gets a solid accent hex + rgba fill — shared between overview and panel
+    ZONE_PAL = [
+        ("#5B7FA6", "rgba(91,127,166,0.22)"),   # steel blue
+        ("#4E9E6B", "rgba(78,158,107,0.22)"),   # green
+        ("#C4813A", "rgba(196,129,58,0.22)"),   # amber
+        ("#8B5EA6", "rgba(139,94,166,0.22)"),   # purple
+        ("#A63C3C", "rgba(166,60,60,0.22)"),    # red
+        ("#3C9EA6", "rgba(60,158,166,0.22)"),   # teal
+        ("#A6963C", "rgba(166,150,60,0.22)"),   # gold
+        ("#6B4E3C", "rgba(107,78,60,0.22)"),    # brown
     ]
 
-    # ── Overview spectrum with zone bands ─────────────────────────────────────
+    # ── Overview: mean spectra + zone shading ─────────────────────────────────
     fig_ov = go.Figure()
     for cls in cls_sorted:
         idx_c = np.where(grp_arr == cls)[0]
-        for seg_mask, first_seg in [
+        for seg_mask, show_leg in [
             (wavenumbers < 1850, True),
             (wavenumbers > 2500, False),
         ]:
@@ -372,42 +384,40 @@ if regions:
                 x=wn_s, y=mn_s, mode="lines",
                 name=disp_name[cls],
                 line=dict(color=clr[cls], width=2),
-                legendgroup=cls,
-                showlegend=first_seg,
+                legendgroup=cls, showlegend=show_leg,
                 hovertemplate=f"{disp_name[cls]}: %{{y:.4f}}<extra></extra>",
             ))
 
     for z_i, reg in enumerate(regions):
-        lo, hi = _parse_region(reg["Region (cm⁻¹)"])
-        fig_ov.add_vrect(
-            x0=lo, x1=hi,
-            fillcolor=SHADE_PAL[z_i % len(SHADE_PAL)],
-            layer="below", line_width=0,
-        )
+        lo, hi  = _parse_region(reg["Region (cm⁻¹)"])
+        z_hex, z_rgba = ZONE_PAL[z_i % len(ZONE_PAL)]
+        fig_ov.add_vrect(x0=lo, x1=hi, fillcolor=z_rgba, layer="below", line_width=0)
         fig_ov.add_annotation(
-            x=(lo + hi) / 2, y=1.06, yref="paper",
+            x=(lo + hi) / 2, y=1.08, yref="paper",
             text=f"<b>{ZONE_LETTERS[z_i]}</b>",
-            showarrow=False, font=dict(size=10, color="#444"),
+            showarrow=False, font=dict(size=11, color=z_hex),
         )
 
-    fig_ov.update_xaxes(autorange="reversed", title="Wavenumber (cm⁻¹)")
+    fig_ov.update_xaxes(
+        autorange="reversed", title="Wavenumber (cm⁻¹)",
+        rangebreaks=[dict(bounds=[1851, 2499])],   # hide empty atmospheric gap
+    )
     fig_ov.update_yaxes(title="Absorbance")
     fig_ov.update_layout(
         height=300,
-        title=f"Mean spectra — {matrix} · VIP zones highlighted",
+        title=f"Mean spectra — {matrix} ({target_col}) · VIP zones",
         margin=dict(t=55, b=40),
         legend=dict(orientation="h", y=1.02, xanchor="right", x=1),
         paper_bgcolor="white", plot_bgcolor="white",
     )
     st.plotly_chart(fig_ov, use_container_width=True)
 
-    # ── Zone panels (2-column grid) ────────────────────────────────────────────
-    n_zones = len(regions)
-    for row_i in range((n_zones + 1) // 2):
+    # ── Zone panels ───────────────────────────────────────────────────────────
+    for row_i in range((len(regions) + 1) // 2):
         grid = st.columns(2)
         for col_j in range(2):
             z_i = row_i * 2 + col_j
-            if z_i >= n_zones:
+            if z_i >= len(regions):
                 break
 
             reg     = regions[z_i]
@@ -415,51 +425,60 @@ if regions:
             letter  = ZONE_LETTERS[z_i]
             band_nm = reg["Band assignment"]
             bio_nm  = reg["Biochemical origin"]
+            z_hex, z_rgba = ZONE_PAL[z_i % len(ZONE_PAL)]
 
+            # Data
             z_mask   = (wavenumbers >= lo) & (wavenumbers <= hi)
-            wn_z     = wavenumbers[z_mask]
-            X_z      = X_raw[:, z_mask]
+            wn_z     = np.sort(wavenumbers[z_mask])           # ascending for plot
+            X_z      = X_raw[:, z_mask][:, np.argsort(wavenumbers[z_mask])]
             aucs_z   = _zone_aucs(X_raw, wavenumbers, lo, hi)
-
             per_auc  = {c: aucs_z[grp_arr == c] for c in cls_sorted}
             per_spec = {c: X_z[grp_arr == c]    for c in cls_sorted}
 
-            # Pairwise MWU
-            pairs   = [(0, 1), (0, 2), (1, 2)]
-            pw_res  = []
-            for pi, pj in pairs:
+            # Pairwise Mann-Whitney U
+            pw_res = []
+            for pi, pj in [(0,1),(0,2),(1,2)]:
                 a, b = per_auc[cls_sorted[pi]], per_auc[cls_sorted[pj]]
                 if len(a) >= 3 and len(b) >= 3:
                     _, p = _scipy_stats.mannwhitneyu(a, b, alternative="two-sided")
                     pw_res.append((cls_sorted[pi], cls_sorted[pj], _sig(p), p))
 
-            # Figure: spectrum | violin
             fig_z = _sp.make_subplots(
                 rows=1, cols=2,
-                column_widths=[0.46, 0.54],
-                horizontal_spacing=0.10,
+                column_widths=[0.44, 0.56],
+                horizontal_spacing=0.08,
             )
 
-            # Left: mean ± SD per group
+            # ── Left: mean ± SD spectra ───────────────────────────────────────
+            # Zone-coloured background strip
+            fig_z.add_shape(
+                type="rect", row=1, col=1, layer="below",
+                xref="x domain", yref="y domain",
+                x0=0, x1=1, y0=0, y1=1,
+                fillcolor=z_rgba.replace("0.22)", "0.10)"),
+                line_width=0,
+            )
             for cls in cls_sorted:
                 sp_arr = per_spec[cls]
                 mn, sd = sp_arr.mean(axis=0), sp_arr.std(axis=0)
                 c_hex  = clr[cls]
                 dn     = disp_name[cls]
-                fig_z.add_trace(go.Scatter(
-                    x=wn_z, y=mn, mode="lines",
-                    name=dn, line=dict(color=c_hex, width=2),
-                    legendgroup=cls, showlegend=False,
-                    hovertemplate=f"{dn}: %{{y:.5f}} cm⁻¹<extra></extra>",
-                ), row=1, col=1)
+                # SD ribbon
                 fig_z.add_trace(go.Scatter(
                     x=np.concatenate([wn_z, wn_z[::-1]]),
                     y=np.concatenate([mn + sd, (mn - sd)[::-1]]),
-                    fill="toself", fillcolor=_hex_rgba(c_hex, 0.15),
+                    fill="toself", fillcolor=_hex_rgba(c_hex, 0.18),
                     line=dict(width=0), showlegend=False, hoverinfo="skip",
                 ), row=1, col=1)
+                # Mean line
+                fig_z.add_trace(go.Scatter(
+                    x=wn_z, y=mn, mode="lines",
+                    name=dn, line=dict(color=c_hex, width=2.5),
+                    legendgroup=cls, showlegend=False,
+                    hovertemplate=f"{dn}: %{{y:.5f}}<extra></extra>",
+                ), row=1, col=1)
 
-            # Right: violin per group
+            # ── Right: violin plots ────────────────────────────────────────────
             for cls in cls_sorted:
                 c_hex = clr[cls]
                 dn    = disp_name[cls]
@@ -468,85 +487,68 @@ if regions:
                     x=[dn] * len(vals), y=vals,
                     name=dn, legendgroup=cls, showlegend=False,
                     line_color=c_hex,
-                    fillcolor=_hex_rgba(c_hex, 0.40),
+                    fillcolor=_hex_rgba(c_hex, 0.45),
                     box_visible=True,
                     meanline_visible=True,
-                    points="all",
-                    jitter=0.25,
-                    pointpos=0,
-                    marker=dict(color=c_hex, size=4, opacity=0.55),
+                    points="all", jitter=0.25, pointpos=0,
+                    marker=dict(color=c_hex, size=4, opacity=0.65),
                 ), row=1, col=2)
 
-            # Significance brackets on violin
+            # Significance brackets
             y_top  = float(np.percentile(aucs_z, 99))
-            y_bot  = float(np.percentile(aucs_z, 1))
-            y_span = y_top - y_bot
-            step   = y_span * 0.20
-
+            y_bot  = float(np.percentile(aucs_z,  1))
+            y_span = max(y_top - y_bot, 1e-12)
+            step   = y_span * 0.22
             dn_list = [disp_name[c] for c in cls_sorted]
 
             for b_i, (ca, cb, lbl, _) in enumerate(pw_res):
-                y_br   = y_top + step * (b_i + 1.1)
-                xa, xb = disp_name[ca], disp_name[cb]
-                xi     = dn_list.index(xa)
-                xj     = dn_list.index(xb)
-                x_mid  = dn_list[(xi + xj) // 2]   # middle category label
-
-                # Horizontal bracket line
-                fig_z.add_shape(
-                    type="line", row=1, col=2,
-                    x0=xa, x1=xb, y0=y_br, y1=y_br,
-                    line=dict(color="#333", width=1.2),
-                )
-                # Tick down on left
-                fig_z.add_shape(
-                    type="line", row=1, col=2,
-                    x0=xa, x1=xa,
-                    y0=y_br - step * 0.12, y1=y_br,
-                    line=dict(color="#333", width=1.2),
-                )
-                # Tick down on right
-                fig_z.add_shape(
-                    type="line", row=1, col=2,
-                    x0=xb, x1=xb,
-                    y0=y_br - step * 0.12, y1=y_br,
-                    line=dict(color="#333", width=1.2),
-                )
-                # Label
+                y_br = y_top + step * (b_i + 1.2)
+                xa   = disp_name[ca]
+                xb   = disp_name[cb]
+                xi, xj = dn_list.index(xa), dn_list.index(xb)
+                x_mid  = dn_list[(xi + xj) // 2]
+                for shape_kw in [
+                    dict(x0=xa, x1=xb, y0=y_br,            y1=y_br),
+                    dict(x0=xa, x1=xa, y0=y_br - step*0.1, y1=y_br),
+                    dict(x0=xb, x1=xb, y0=y_br - step*0.1, y1=y_br),
+                ]:
+                    fig_z.add_shape(type="line", row=1, col=2,
+                        line=dict(color="#222", width=1.2), **shape_kw)
                 fig_z.add_annotation(
-                    x=x_mid, y=y_br + step * 0.18,
+                    x=x_mid, y=y_br + step * 0.15,
                     xref="x2", yref="y2",
                     text=f"<b>{lbl}</b>",
                     showarrow=False, font=dict(size=11, color="#111"),
                 )
 
-            # Axis labels & layout
-            fig_z.update_xaxes(autorange="reversed", title="Wavenumber (cm⁻¹)", row=1, col=1)
+            fig_z.update_xaxes(
+                autorange="reversed", title="Wavenumber (cm⁻¹)", row=1, col=1,
+            )
             fig_z.update_yaxes(title="Absorbance", row=1, col=1)
             fig_z.update_yaxes(
                 title="AUC",
-                range=[y_bot - y_span * 0.05,
-                       y_top + step * (len(pw_res) + 1.8)],
+                range=[y_bot - y_span*0.05,
+                       y_top + step*(len(pw_res) + 2.0)],
                 row=1, col=2,
             )
             fig_z.update_layout(
                 title=dict(
                     text=(
-                        f"<b>Zone {letter}</b>  {lo:.0f}–{hi:.0f} cm⁻¹ · {band_nm}<br>"
-                        f"<span style='font-size:11px;color:#666'>{bio_nm}</span>"
+                        f"<span style='background:{z_hex};color:white;"
+                        f"padding:2px 9px;border-radius:4px'><b>{letter}</b></span>"
+                        f"  <b>{lo:.0f}–{hi:.0f} cm⁻¹</b> · {band_nm}<br>"
+                        f"<span style='font-size:10px;color:#666'>{bio_nm}</span>"
                     ),
-                    font=dict(size=12), x=0.5, xanchor="center",
+                    font=dict(size=12), x=0.01, xanchor="left",
                 ),
-                height=400,
-                margin=dict(t=75, b=45, l=55, r=15),
+                height=390,
+                margin=dict(t=80, b=45, l=55, r=15),
                 paper_bgcolor="white",
                 plot_bgcolor="white",
-                violingap=0.2, violingroupgap=0.1,
+                violingap=0.25, violingroupgap=0.1,
             )
 
             grid[col_j].plotly_chart(fig_z, use_container_width=True)
-
-            # Download AUC CSV
             dl_df = pd.DataFrame({
                 "group_code":    grp_arr,
                 "group_display": [disp_name[c] for c in grp_arr],
