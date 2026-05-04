@@ -320,6 +320,7 @@ if regions:
         "Download individual zone AUC data for external plotting."
     )
 
+    ftir_cols = get_ftir_columns(data)
     X_raw   = data[ftir_cols].values.astype(float)
     grp_arr = np.array([classes[i] for i in y])
     cls_sorted = sorted(set(grp_arr))
