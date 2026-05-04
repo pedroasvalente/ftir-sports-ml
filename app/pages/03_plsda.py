@@ -480,15 +480,18 @@ if regions:
                 mn, sd = sp_arr.mean(axis=0), sp_arr.std(axis=0)
                 c_hex  = clr[cls]
                 dn     = disp_name[cls]
+                # SD ribbon — mode="none" removes border points/lines
                 fig_z.add_trace(go.Scatter(
                     x=np.concatenate([wn_z, wn_z[::-1]]),
                     y=np.concatenate([mn + sd, (mn - sd)[::-1]]),
-                    fill="toself", fillcolor=_hex_rgba(c_hex, 0.18),
-                    line=dict(width=0), showlegend=False, hoverinfo="skip",
+                    fill="toself", fillcolor=_hex_rgba(c_hex, 0.20),
+                    mode="none", showlegend=False, hoverinfo="skip",
                 ), row=1, col=1)
+                # Mean line — marker size=0 prevents vertex dots
                 fig_z.add_trace(go.Scatter(
                     x=wn_z, y=mn, mode="lines",
                     name=dn, line=dict(color=c_hex, width=2.5),
+                    marker=dict(size=0),
                     legendgroup=cls, showlegend=True,
                     hovertemplate=f"{dn}: %{{y:.5f}}<extra></extra>",
                 ), row=1, col=1)
@@ -520,7 +523,7 @@ if regions:
                 y_br  = y_top + step * (b_i + 1.2)
                 xa, xb = disp_name[ca], disp_name[cb]
                 xi, xj = dn_list.index(xa), dn_list.index(xb)
-                x_mid  = dn_list[(xi + xj) // 2]
+                x_mid_num = (xi + xj) / 2   # numeric midpoint → always centred
                 for kw in [
                     dict(x0=xa, x1=xb, y0=y_br,            y1=y_br),
                     dict(x0=xa, x1=xa, y0=y_br - step*0.1, y1=y_br),
@@ -529,7 +532,7 @@ if regions:
                     fig_z.add_shape(type="line", row=1, col=2,
                                     line=dict(color="#222", width=1.2), **kw)
                 fig_z.add_annotation(
-                    x=x_mid, y=y_br + step * 0.15,
+                    x=x_mid_num, y=y_br + step * 0.15,
                     xref="x2", yref="y2",
                     text=f"<b>{lbl}</b>",
                     showarrow=False, font=dict(size=12, color="#111"),
@@ -551,7 +554,7 @@ if regions:
                     ),
                     font=dict(size=13), x=0.5, xanchor="center",
                 ),
-                height=400,
+                height=330,
                 margin=dict(t=75, b=45, l=60, r=20),
                 paper_bgcolor="white",
                 plot_bgcolor="white",
