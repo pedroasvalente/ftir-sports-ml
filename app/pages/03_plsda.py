@@ -551,14 +551,18 @@ if regions:
                     ),
                     font=dict(size=13), x=0.5, xanchor="center",
                 ),
-                height=460,
-                margin=dict(t=85, b=50, l=60, r=20),
+                height=400,
+                margin=dict(t=75, b=45, l=60, r=20),
                 paper_bgcolor="white",
                 plot_bgcolor="white",
                 violingap=0.25, violingroupgap=0.1,
+                # Legend inside spectrum subplot (top-left), not overlapping title
                 legend=dict(
-                    orientation="h", yanchor="bottom", y=1.12,
-                    xanchor="center", x=0.5, font=dict(size=11),
+                    x=0.01, y=0.99,
+                    xanchor="left", yanchor="top",
+                    bgcolor="rgba(255,255,255,0.75)",
+                    bordercolor="#ddd", borderwidth=1,
+                    font=dict(size=10),
                 ),
             )
 
