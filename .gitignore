@@ -11,8 +11,9 @@ venv/
 # Raw JSON files are too large for git
 data/raw/
 
-# Results and models — large files
-/results/
+# Results and models — large files (cm_data.json tracked for Streamlit Cloud)
+/results/**
+!/results/**/cm_data.json
 /models/
 /mlruns/
 /mlartifacts/
