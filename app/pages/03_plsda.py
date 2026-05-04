@@ -325,11 +325,15 @@ if regions:
     cls_sorted = sorted(set(grp_arr))
 
     disp_name  = {c: group_labels.get(str(c), str(c)) for c in cls_sorted}
-    # Robust color: try direct key ('F','S','U'), then match by display name
-    _dn_clr = {group_labels.get(str(k), str(k)): v for k, v in group_colors.items()}
-    clr = {c: (group_colors.get(str(c))
-               or _dn_clr.get(disp_name[c], "#888888"))
-           for c in cls_sorted}
+    # Robust color lookup: works regardless of whether raw values are 'F' or 'football'
+    _p1 = dict(group_colors)                                             # 'F' → color
+    _p2 = {group_labels.get(str(k), str(k)): v for k, v in group_colors.items()}  # 'Football' → color
+    _p3 = {k.lower(): v for k, v in _p2.items()}                        # 'football' → color
+    _fb = ["#377eb8", "#e41a1c", "#4daf4a", "#ff7f00", "#984ea3"]       # final fallback
+    clr = {}
+    for _i, c in enumerate(cls_sorted):
+        _s = str(c)
+        clr[c] = (_p1.get(_s) or _p2.get(_s) or _p3.get(_s.lower()) or _fb[_i % len(_fb)])
 
     def _hex_rgba(h, a=0.18):
         h = h.lstrip("#")
@@ -358,19 +362,8 @@ if regions:
         return float(parts[0].strip()), float(parts[1].strip())
 
     ZONE_LETTERS = list("ABCDEFGHIJ")
-    # Each zone gets a solid accent hex + rgba fill — shared between overview and panel
-    ZONE_PAL = [
-        ("#5B7FA6", "rgba(91,127,166,0.22)"),   # steel blue
-        ("#4E9E6B", "rgba(78,158,107,0.22)"),   # green
-        ("#C4813A", "rgba(196,129,58,0.22)"),   # amber
-        ("#8B5EA6", "rgba(139,94,166,0.22)"),   # purple
-        ("#A63C3C", "rgba(166,60,60,0.22)"),    # red
-        ("#3C9EA6", "rgba(60,158,166,0.22)"),   # teal
-        ("#A6963C", "rgba(166,150,60,0.22)"),   # gold
-        ("#6B4E3C", "rgba(107,78,60,0.22)"),    # brown
-    ]
 
-    # ── Overview: mean spectra + zone shading ─────────────────────────────────
+    # ── Overview: mean spectra + neutral zone shading + letter labels ──────────
     fig_ov = go.Figure()
     for cls in cls_sorted:
         idx_c = np.where(grp_arr == cls)[0]
@@ -389,18 +382,21 @@ if regions:
             ))
 
     for z_i, reg in enumerate(regions):
-        lo, hi  = _parse_region(reg["Region (cm⁻¹)"])
-        z_hex, z_rgba = ZONE_PAL[z_i % len(ZONE_PAL)]
-        fig_ov.add_vrect(x0=lo, x1=hi, fillcolor=z_rgba, layer="below", line_width=0)
+        lo, hi = _parse_region(reg["Region (cm⁻¹)"])
+        fig_ov.add_vrect(
+            x0=lo, x1=hi,
+            fillcolor="rgba(160,160,160,0.20)",
+            layer="below", line_width=0,
+        )
         fig_ov.add_annotation(
             x=(lo + hi) / 2, y=1.08, yref="paper",
             text=f"<b>{ZONE_LETTERS[z_i]}</b>",
-            showarrow=False, font=dict(size=11, color=z_hex),
+            showarrow=False, font=dict(size=12, color="#444"),
         )
 
     fig_ov.update_xaxes(
         autorange="reversed", title="Wavenumber (cm⁻¹)",
-        rangebreaks=[dict(bounds=[1851, 2499])],   # hide empty atmospheric gap
+        rangebreaks=[dict(bounds=[1851, 2499])],
     )
     fig_ov.update_yaxes(title="Absorbance")
     fig_ov.update_layout(
@@ -412,73 +408,92 @@ if regions:
     )
     st.plotly_chart(fig_ov, use_container_width=True)
 
-    # ── Zone panels ───────────────────────────────────────────────────────────
-    for row_i in range((len(regions) + 1) // 2):
+    # ── Pre-compute all zones and filter out all-ns ───────────────────────────
+    zone_data = []
+    for z_i, reg in enumerate(regions):
+        lo, hi  = _parse_region(reg["Region (cm⁻¹)"])
+        z_mask  = (wavenumbers >= lo) & (wavenumbers <= hi)
+        wn_z    = np.sort(wavenumbers[z_mask])
+        X_z     = X_raw[:, z_mask][:, np.argsort(wavenumbers[z_mask])]
+        aucs_z  = _zone_aucs(X_raw, wavenumbers, lo, hi)
+        per_auc  = {c: aucs_z[grp_arr == c] for c in cls_sorted}
+        per_spec = {c: X_z[grp_arr == c]    for c in cls_sorted}
+
+        pw_res = []
+        for pi, pj in [(0,1),(0,2),(1,2)]:
+            a, b = per_auc[cls_sorted[pi]], per_auc[cls_sorted[pj]]
+            if len(a) >= 3 and len(b) >= 3:
+                _, p = _scipy_stats.mannwhitneyu(a, b, alternative="two-sided")
+                pw_res.append((cls_sorted[pi], cls_sorted[pj], _sig(p), p))
+
+        # Skip zones where every comparison is non-significant
+        if pw_res and all(lbl == "ns" for _, _, lbl, _ in pw_res):
+            continue
+
+        zone_data.append(dict(
+            z_i=z_i, lo=lo, hi=hi,
+            letter=ZONE_LETTERS[z_i],
+            band_nm=reg["Band assignment"],
+            bio_nm=reg["Biochemical origin"],
+            wn_z=wn_z, X_z=X_z, aucs_z=aucs_z,
+            per_auc=per_auc, per_spec=per_spec,
+            pw_res=pw_res,
+        ))
+
+    if not zone_data:
+        st.info("No regions with significant group differences found at current settings.")
+    else:
+        st.caption(
+            f"Showing {len(zone_data)} zone(s) with ≥ 1 significant pairwise difference "
+            f"(all-ns zones hidden)."
+        )
+
+    # ── Zone panels (2-column grid, only significant) ─────────────────────────
+    for row_i in range((len(zone_data) + 1) // 2):
         grid = st.columns(2)
         for col_j in range(2):
-            z_i = row_i * 2 + col_j
-            if z_i >= len(regions):
+            zd_idx = row_i * 2 + col_j
+            if zd_idx >= len(zone_data):
                 break
 
-            reg     = regions[z_i]
-            lo, hi  = _parse_region(reg["Region (cm⁻¹)"])
-            letter  = ZONE_LETTERS[z_i]
-            band_nm = reg["Band assignment"]
-            bio_nm  = reg["Biochemical origin"]
-            z_hex, z_rgba = ZONE_PAL[z_i % len(ZONE_PAL)]
-
-            # Data
-            z_mask   = (wavenumbers >= lo) & (wavenumbers <= hi)
-            wn_z     = np.sort(wavenumbers[z_mask])           # ascending for plot
-            X_z      = X_raw[:, z_mask][:, np.argsort(wavenumbers[z_mask])]
-            aucs_z   = _zone_aucs(X_raw, wavenumbers, lo, hi)
-            per_auc  = {c: aucs_z[grp_arr == c] for c in cls_sorted}
-            per_spec = {c: X_z[grp_arr == c]    for c in cls_sorted}
-
-            # Pairwise Mann-Whitney U
-            pw_res = []
-            for pi, pj in [(0,1),(0,2),(1,2)]:
-                a, b = per_auc[cls_sorted[pi]], per_auc[cls_sorted[pj]]
-                if len(a) >= 3 and len(b) >= 3:
-                    _, p = _scipy_stats.mannwhitneyu(a, b, alternative="two-sided")
-                    pw_res.append((cls_sorted[pi], cls_sorted[pj], _sig(p), p))
+            zd      = zone_data[zd_idx]
+            lo, hi  = zd["lo"], zd["hi"]
+            letter  = zd["letter"]
+            band_nm = zd["band_nm"]
+            bio_nm  = zd["bio_nm"]
+            wn_z    = zd["wn_z"]
+            aucs_z  = zd["aucs_z"]
+            per_auc = zd["per_auc"]
+            per_spec= zd["per_spec"]
+            pw_res  = zd["pw_res"]
 
             fig_z = _sp.make_subplots(
                 rows=1, cols=2,
                 column_widths=[0.44, 0.56],
                 horizontal_spacing=0.08,
+                subplot_titles=["Mean ± SD spectrum", "AUC by group"],
             )
 
-            # ── Left: mean ± SD spectra ───────────────────────────────────────
-            # Zone-coloured background strip
-            fig_z.add_shape(
-                type="rect", row=1, col=1, layer="below",
-                xref="x domain", yref="y domain",
-                x0=0, x1=1, y0=0, y1=1,
-                fillcolor=z_rgba.replace("0.22)", "0.10)"),
-                line_width=0,
-            )
+            # ── Left: mean ± SD spectra (group colours) ───────────────────────
             for cls in cls_sorted:
                 sp_arr = per_spec[cls]
                 mn, sd = sp_arr.mean(axis=0), sp_arr.std(axis=0)
                 c_hex  = clr[cls]
                 dn     = disp_name[cls]
-                # SD ribbon
                 fig_z.add_trace(go.Scatter(
                     x=np.concatenate([wn_z, wn_z[::-1]]),
                     y=np.concatenate([mn + sd, (mn - sd)[::-1]]),
                     fill="toself", fillcolor=_hex_rgba(c_hex, 0.18),
                     line=dict(width=0), showlegend=False, hoverinfo="skip",
                 ), row=1, col=1)
-                # Mean line
                 fig_z.add_trace(go.Scatter(
                     x=wn_z, y=mn, mode="lines",
                     name=dn, line=dict(color=c_hex, width=2.5),
-                    legendgroup=cls, showlegend=False,
+                    legendgroup=cls, showlegend=True,
                     hovertemplate=f"{dn}: %{{y:.5f}}<extra></extra>",
                 ), row=1, col=1)
 
-            # ── Right: violin plots ────────────────────────────────────────────
+            # ── Right: violin plots (group colours) ───────────────────────────
             for cls in cls_sorted:
                 c_hex = clr[cls]
                 dn    = disp_name[cls]
@@ -487,14 +502,14 @@ if regions:
                     x=[dn] * len(vals), y=vals,
                     name=dn, legendgroup=cls, showlegend=False,
                     line_color=c_hex,
-                    fillcolor=_hex_rgba(c_hex, 0.45),
+                    fillcolor=_hex_rgba(c_hex, 0.50),
                     box_visible=True,
                     meanline_visible=True,
                     points="all", jitter=0.25, pointpos=0,
-                    marker=dict(color=c_hex, size=4, opacity=0.65),
+                    marker=dict(color=c_hex, size=4, opacity=0.70),
                 ), row=1, col=2)
 
-            # Significance brackets
+            # ── Significance brackets ─────────────────────────────────────────
             y_top  = float(np.percentile(aucs_z, 99))
             y_bot  = float(np.percentile(aucs_z,  1))
             y_span = max(y_top - y_bot, 1e-12)
@@ -502,50 +517,49 @@ if regions:
             dn_list = [disp_name[c] for c in cls_sorted]
 
             for b_i, (ca, cb, lbl, _) in enumerate(pw_res):
-                y_br = y_top + step * (b_i + 1.2)
-                xa   = disp_name[ca]
-                xb   = disp_name[cb]
+                y_br  = y_top + step * (b_i + 1.2)
+                xa, xb = disp_name[ca], disp_name[cb]
                 xi, xj = dn_list.index(xa), dn_list.index(xb)
                 x_mid  = dn_list[(xi + xj) // 2]
-                for shape_kw in [
+                for kw in [
                     dict(x0=xa, x1=xb, y0=y_br,            y1=y_br),
                     dict(x0=xa, x1=xa, y0=y_br - step*0.1, y1=y_br),
                     dict(x0=xb, x1=xb, y0=y_br - step*0.1, y1=y_br),
                 ]:
                     fig_z.add_shape(type="line", row=1, col=2,
-                        line=dict(color="#222", width=1.2), **shape_kw)
+                                    line=dict(color="#222", width=1.2), **kw)
                 fig_z.add_annotation(
                     x=x_mid, y=y_br + step * 0.15,
                     xref="x2", yref="y2",
                     text=f"<b>{lbl}</b>",
-                    showarrow=False, font=dict(size=11, color="#111"),
+                    showarrow=False, font=dict(size=12, color="#111"),
                 )
 
-            fig_z.update_xaxes(
-                autorange="reversed", title="Wavenumber (cm⁻¹)", row=1, col=1,
-            )
+            fig_z.update_xaxes(autorange="reversed", title="Wavenumber (cm⁻¹)", row=1, col=1)
             fig_z.update_yaxes(title="Absorbance", row=1, col=1)
             fig_z.update_yaxes(
                 title="AUC",
                 range=[y_bot - y_span*0.05,
-                       y_top + step*(len(pw_res) + 2.0)],
+                       y_top + step*(len(pw_res) + 2.2)],
                 row=1, col=2,
             )
             fig_z.update_layout(
                 title=dict(
                     text=(
-                        f"<span style='background:{z_hex};color:white;"
-                        f"padding:2px 9px;border-radius:4px'><b>{letter}</b></span>"
-                        f"  <b>{lo:.0f}–{hi:.0f} cm⁻¹</b> · {band_nm}<br>"
+                        f"<b>Zone {letter}  ·  {lo:.0f}–{hi:.0f} cm⁻¹  ·  {band_nm}</b><br>"
                         f"<span style='font-size:10px;color:#666'>{bio_nm}</span>"
                     ),
-                    font=dict(size=12), x=0.01, xanchor="left",
+                    font=dict(size=13), x=0.5, xanchor="center",
                 ),
-                height=390,
-                margin=dict(t=80, b=45, l=55, r=15),
+                height=460,
+                margin=dict(t=85, b=50, l=60, r=20),
                 paper_bgcolor="white",
                 plot_bgcolor="white",
                 violingap=0.25, violingroupgap=0.1,
+                legend=dict(
+                    orientation="h", yanchor="bottom", y=1.12,
+                    xanchor="center", x=0.5, font=dict(size=11),
+                ),
             )
 
             grid[col_j].plotly_chart(fig_z, use_container_width=True)
@@ -559,7 +573,7 @@ if regions:
                 data=dl_df.to_csv(index=False).encode(),
                 file_name=f"zone_{letter}_{matrix}_{lo:.0f}_{hi:.0f}_auc.csv",
                 mime="text/csv",
-                key=f"dl_zone_{z_i}_{matrix}_{vip_pct_threshold}",
+                key=f"dl_zone_{zd['z_i']}_{matrix}_{vip_pct_threshold}",
             )
 
 # ── Confounder Analysis (ANCOVA) ──────────────────────────────────────────────
