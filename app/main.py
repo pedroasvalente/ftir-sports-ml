@@ -24,7 +24,7 @@ with st.sidebar:
 render_appearance_sidebar()
 
 # ── Title ──────────────────────────────────────────────────────────────────────
-st.title("ATR-FTIR Spectroscopy for Sport Group Discrimination — Study 1")
+st.title("ATR-FTIR Spectroscopy for Sport Group Discrimination")
 st.caption(
     "Supervised machine learning for physical activity level classification "
     "across five biological matrices"
@@ -89,18 +89,17 @@ st.markdown(
     **PCA Explorer** — Principal component analysis scores coloured by group, timepoint,
     or continuous covariates; variance explained; loading heatmap; biplot.
 
-    **PLS-DA** — Supervised group separation in LV space; VIP score spectrum with the
-    VIP > 1 threshold indicated.
+    **PLS-DA** — Supervised group separation in latent variable space; VIP score spectrum
+    with top-10 % and top-20 % thresholds; per-zone mean ± SD profiles with pairwise
+    Mann–Whitney U significance annotations between sport groups.
 
     **ML Results** — Full results table with sortable metrics, per-matrix top-N leaderboard,
-    performance heatmap, distribution boxplots, and per-class sensitivity breakdown.
+    performance heatmap, distribution boxplots, per-class sensitivity breakdown,
+    and interactive confusion matrices.
 
     **Model Comparison** — Radar chart and grouped bar chart benchmarking all classifiers
     across metrics; scatter plot of balanced accuracy vs. MCC; cross-matrix summary;
     Wilcoxon signed-rank test comparing timepoint configurations [1] vs. [1, 2, 3].
-
-    **Diagnostics** — Interactive confusion matrix, ROC curves (one-vs-rest), probability
-    calibration plot, and aggregated VIP score spectrum for a selected training run.
     """
 )
 

@@ -7,7 +7,7 @@ across five biological matrices (capillary blood, plasma, saliva, serum, urine) 
 
 [![License: CC BY-NC-ND 4.0](https://img.shields.io/badge/License-CC%20BY--NC--ND%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-nd/4.0/)
 
-© 2024 Pedro Afonso Valente, University of Coimbra.
+© 2024–2025 Pedro Afonso Valente, University of Coimbra.
 Licensed under [CC BY-NC-ND 4.0](LICENSE) — share with attribution, no commercial use, no derivatives.
 
 This code accompanies the manuscript:
