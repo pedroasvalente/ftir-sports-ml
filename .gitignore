@@ -11,9 +11,25 @@ venv/
 # Raw JSON files are too large for git
 data/raw/
 
-# Results and models — large files (cm_data.json tracked for Streamlit Cloud)
-/results/**
-!/results/**/cm_data.json
+# Results and models
+# Small artifacts under results/ ARE tracked so the Streamlit app works
+# offline (without DagsHub). Only large binaries / serialised models are
+# ignored. NB: a catch-all like `results/**` would exclude the directory
+# itself, which blocks any `!negation` patterns from re-including children
+# — so we whitelist by extension instead.
+results/**/*.pkl
+results/**/*.npy
+results/**/*.npz
+results/**/*.h5
+results/**/*.hdf5
+results/**/*.parquet
+results/**/*.feather
+results/**/*.joblib
+results/**/*.onnx
+results/**/*.pt
+results/**/*.pth
+results/**/predictions_*.csv
+results/**/raw/
 /models/
 /mlruns/
 /mlartifacts/

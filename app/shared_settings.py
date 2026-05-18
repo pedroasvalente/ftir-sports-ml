@@ -193,6 +193,41 @@ def load_local_results(results_dir) -> tuple[list, list]:
     return csv_files, run_names
 
 
+@st.cache_data(ttl=300)
+def load_local_results_df(results_dir: str) -> pd.DataFrame:
+    """
+    Concatenate every `results_summary.csv` found under `results_dir`,
+    tagging each row with the parent folder name as `config` / `run_slug`.
+    This is the offline-friendly path used on Streamlit Cloud when DagsHub
+    is unavailable.
+    """
+    base = Path(results_dir)
+    csv_files = sorted(base.rglob("results_summary.csv"))
+    if not csv_files:
+        return pd.DataFrame()
+
+    frames = []
+    for f in csv_files:
+        try:
+            sub = pd.read_csv(f)
+        except Exception:
+            continue
+        run_name = f.parent.name
+        sub["config"] = run_name
+        sub["run_slug"] = run_name
+        sub["experiment"] = run_name
+        frames.append(sub)
+
+    if not frames:
+        return pd.DataFrame()
+
+    df = pd.concat(frames, ignore_index=True)
+    for col in METRIC_COLS_ALL:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
+
+
 def _render_run_info(df: pd.DataFrame, run_label: str, source: str):
     """
     Render a compact run-identity info box below the data source controls.
@@ -237,35 +272,83 @@ def _render_run_info(df: pd.DataFrame, run_label: str, source: str):
 
 def render_data_source_sidebar(results_dir) -> tuple[pd.DataFrame | None, bool]:
     """
-    Always loads results from DagsHub MLflow. Shows a 'Run' selectbox in the
-    sidebar so the user can filter to a specific training run (by config tag)
-    or keep 'All'.
+    Load training results, preferring local CSVs committed to the repo so the
+    app keeps working when DagsHub is unavailable. DagsHub MLflow is used as a
+    fallback (and can be forced via a sidebar toggle when the token is set).
 
-    Returns (df, True). df is None if the token is missing or no runs found.
+    Shows a 'Run' selectbox in the sidebar so the user can filter to a
+    specific training run or keep 'All'.
+
+    Returns (df, used_dagshub). df is None if no results could be loaded.
     """
     token = os.environ.get("DAGSHUB_USER_TOKEN", "")
 
-    if not token:
-        st.warning(
-            "DAGSHUB_USER_TOKEN not found in secrets. "
-            "Add it to `.streamlit/secrets.toml` or Streamlit Cloud secrets."
-        )
-        return None, True
+    # Try local repo first — fast, offline, and always available on Streamlit Cloud.
+    df_local = load_local_results_df(str(results_dir))
+    local_available = not df_local.empty
 
-    with st.spinner("Loading runs from DagsHub…"):
-        df_all = load_from_dagshub(token)
+    # Sidebar toggle: only meaningful when DagsHub credentials exist
+    with st.sidebar:
+        st.header("Data source")
+        if token and local_available:
+            use_dagshub = st.toggle(
+                "Use DagsHub MLflow",
+                value=False,
+                help="Off: load committed CSVs from the repo (fast, offline). "
+                     "On: query the DagsHub MLflow tracking server for the latest runs.",
+            )
+        elif token and not local_available:
+            st.caption("No local results found — using DagsHub.")
+            use_dagshub = True
+        else:
+            if not local_available:
+                st.error(
+                    "No local results found and no DAGSHUB_USER_TOKEN set. "
+                    "Commit `results/*/results_summary.csv` to the repo or set the token."
+                )
+                return None, False
+            st.caption("Local results loaded from the repo.")
+            use_dagshub = False
 
-    if df_all.empty:
-        st.info("No runs found on DagsHub. Run training first.")
-        return None, True
+    df_all = pd.DataFrame()
+    source = "Local repo"
+
+    if use_dagshub:
+        try:
+            with st.spinner("Loading runs from DagsHub…"):
+                df_all = load_from_dagshub(token)
+            source = "DagsHub MLflow"
+            if df_all.empty:
+                st.info("No runs found on DagsHub — falling back to local CSVs.")
+                df_all = df_local
+                source = "Local repo (DagsHub empty)"
+        except Exception as e:
+            st.warning(
+                f"Could not reach DagsHub ({type(e).__name__}). "
+                "Falling back to local results committed to the repo."
+            )
+            df_all = df_local
+            source = "Local repo (DagsHub unreachable)"
+    else:
+        df_all = df_local
+
+    if df_all is None or df_all.empty:
+        st.error("No results available from either source.")
+        return None, use_dagshub
 
     # Use run_slug tag to distinguish runs (e.g. study1_group_fam_v2).
     # For older runs without the tag, fall back to config filename.
-    if "run_slug" in df_all.columns and df_all["run_slug"].str.strip().any():
+    if "run_slug" in df_all.columns and df_all["run_slug"].astype(str).str.strip().any():
         _name_col = "run_slug"
-    else:
+    elif "config" in df_all.columns:
         _name_col = "config"
-    run_vals = sorted(df_all[_name_col].replace("", pd.NA).dropna().unique())
+    else:
+        _name_col = None
+
+    run_vals = (
+        sorted(df_all[_name_col].replace("", pd.NA).dropna().unique())
+        if _name_col else []
+    )
 
     with st.sidebar:
         st.header("Run")
@@ -281,8 +364,8 @@ def render_data_source_sidebar(results_dir) -> tuple[pd.DataFrame | None, bool]:
             df = df_all
             run_label = "All runs"
 
-    _render_run_info(df, run_label=run_label, source="DagsHub MLflow")
-    return df, True
+    _render_run_info(df, run_label=run_label, source=source)
+    return df, use_dagshub
 
 
 def apply_group_labels(series, group_labels=None):
